@@ -1,0 +1,31 @@
+
+// Helper to format errors safely (ROBUST VERSION)
+export const formatError = (e: any): string => {
+    try {
+        if (e === null || e === undefined) return "Erro desconhecido";
+        
+        // Se já for uma string, retorna
+        if (typeof e === 'string') return e;
+        
+        // Trata erro padrão do JavaScript
+        if (e instanceof Error) return e.message;
+        
+        // Trata erros vindos do Supabase ou APIs (padrão Postgrest)
+        if (typeof e === 'object') {
+             const message = e.message || e.error_description || e.details || e.error?.message;
+             if (typeof message === 'string') return message;
+             
+             // Caso seja um objeto sem campo de mensagem conhecido
+             try {
+                 const str = JSON.stringify(e);
+                 return str === '{}' ? String(e) : str;
+             } catch {
+                 return "Erro de estrutura de dados (não serializável)";
+             }
+        }
+
+        return String(e);
+    } catch (err) {
+        return "Falha crítica ao processar mensagem de erro";
+    }
+};
