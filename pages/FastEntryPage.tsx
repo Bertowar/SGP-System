@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { 
-  Calendar, Clock, Monitor, Save, ArrowRight, Plus, Trash2, Edit, 
+import {
+  Calendar, Clock, Monitor, Save, ArrowRight, Plus, Trash2, Edit,
   Zap, AlertTriangle, CheckCircle2, X, ChevronDown, Package, PauseCircle,
   LayoutTemplate, Table2, TrendingUp, Scale, Boxes, Loader2
 } from 'lucide-react';
@@ -14,11 +14,11 @@ import { ProductionEntry } from '../types';
 const generateUID = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
 
 const parseSafeNumber = (val: any): number => {
-    if (val === undefined || val === null || val === '') return 0;
-    if (typeof val === 'number') return isNaN(val) ? 0 : val;
-    let clean = val.toString().trim().replace(/\./g, '').replace(',', '.');
-    const num = parseFloat(clean);
-    return isNaN(num) ? 0 : num;
+  if (val === undefined || val === null || val === '') return 0;
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  let clean = val.toString().trim().replace(/\./g, '').replace(',', '.');
+  const num = parseFloat(clean);
+  return isNaN(num) ? 0 : num;
 };
 
 interface LocalProductionEntry {
@@ -73,6 +73,21 @@ const FastEntryPage: React.FC = () => {
   const currentMachine = machines.find(m => m.code === selectedMachine);
   const isExtrusion = currentMachine?.sector === 'Extrusão';
 
+  // Filtra turnos baseados no setor da máquina selecionada
+  // Se o turno não tiver setor (null/undefined), ele é considerado Global e aparece para todos.
+  const filteredShifts = useMemo(() => {
+    if (!currentMachine?.sector) return shifts;
+    return shifts.filter(s => !s.sector || s.sector === currentMachine.sector);
+  }, [shifts, currentMachine]);
+
+  // Reset shift if it becomes invalid for the new machine
+  useEffect(() => {
+    if (selectedShift && filteredShifts.length > 0) {
+      const isValid = filteredShifts.some(s => s.name === selectedShift);
+      if (!isValid) setSelectedShift('');
+    }
+  }, [selectedMachine, filteredShifts]);
+
   // CARREGAMENTO DE DADOS DO BANCO
   const loadData = async () => {
     if (!date || !selectedMachine) return;
@@ -93,14 +108,17 @@ const FastEntryPage: React.FC = () => {
         timestamp: e.createdAt
       })));
 
-      setStopEntries(filtered.filter(e => e.downtimeMinutes > 0).map(e => ({
-        id: e.id,
-        startTime: e.startTime || '',
-        endTime: e.endTime || '',
-        reasonId: e.downtimeTypeId || '',
-        reasonName: downtimeTypes.find(dt => dt.id === e.downtimeTypeId)?.description || 'Parada',
-        timestamp: e.createdAt
-      })));
+      setStopEntries(filtered.filter(e => e.downtimeMinutes > 0).map(e => {
+        const dt = downtimeTypes.find(dt => dt.id === e.downtimeTypeId);
+        return {
+          id: e.id,
+          startTime: e.startTime || '',
+          endTime: e.endTime || '',
+          reasonId: e.downtimeTypeId || '',
+          reasonName: dt ? `${dt.id} - ${dt.description}` : 'Parada',
+          timestamp: e.createdAt
+        };
+      }));
     } catch (err) {
       console.error(err);
     } finally {
@@ -125,7 +143,7 @@ const FastEntryPage: React.FC = () => {
       const shiftTimes = shifts.find(s => s.name === selectedShift);
       const prodRef = products.find(p => p.codigo === prodCode);
       const theoreticalUnitWeight = prodRef?.pesoLiquido || 0;
-      
+
       let qtyOK = 0;
       if (isExtrusion) {
         qtyOK = weightValue;
@@ -240,7 +258,7 @@ const FastEntryPage: React.FC = () => {
             <label className="text-sm font-bold text-slate-700">Turno</label>
             <select value={selectedShift} onChange={e => setSelectedShift(e.target.value)} className="p-2 border rounded-lg bg-white font-bold">
               <option value="">Selecione...</option>
-              {shifts.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+              {filteredShifts.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
             </select>
           </div>
           {isLoading && <Loader2 className="animate-spin text-brand-600 mt-6" size={24} />}
@@ -317,17 +335,17 @@ const FastEntryPage: React.FC = () => {
       {isProdModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in zoom-in-95">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
-            <div className="p-4 border-b bg-slate-50 flex justify-between items-center"><h3 className="font-bold">{editingId ? 'Editar Produção' : 'Nova Produção'}</h3><button onClick={() => setIsProdModalOpen(false)}><X size={24}/></button></div>
+            <div className="p-4 border-b bg-slate-50 flex justify-between items-center"><h3 className="font-bold">{editingId ? 'Editar Produção' : 'Nova Produção'}</h3><button onClick={() => setIsProdModalOpen(false)}><X size={24} /></button></div>
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2"><label className="text-xs font-bold uppercase text-slate-500">Operador</label><select value={prodForm.operatorId} onChange={e => setProdForm({...prodForm, operatorId: e.target.value})} className="w-full p-2 border rounded-lg font-bold"><option value="">Selecione...</option>{operators.filter(op => !op.sector || op.sector === currentMachine?.sector).map(op => <option key={op.id} value={op.id}>{op.name}</option>)}</select></div>
-                <div><Input label="Ciclagem" value={prodForm.cycleRate} onChange={e => setProdForm({...prodForm, cycleRate: e.target.value})} placeholder="0,0" /></div>
-                <div><ProductSelect products={products.filter(p => !p.compatibleMachines || p.compatibleMachines.includes(selectedMachine))} value={prodForm.productCode ? Number(prodForm.productCode) : null} onChange={v => setProdForm({...prodForm, productCode: v?.toString() || ''})} /></div>
-                <div><Input ref={prodWeightRef} label="Peso (kg)" value={prodForm.weight} onChange={e => setProdForm({...prodForm, weight: e.target.value})} placeholder="0,00" /></div>
-                <div><Input label="Caixas (Qtd)" value={prodForm.boxes} onChange={e => setProdForm({...prodForm, boxes: e.target.value})} placeholder="0" /></div>
+                <div className="col-span-2"><label className="text-xs font-bold uppercase text-slate-500">Operador</label><select value={prodForm.operatorId} onChange={e => setProdForm({ ...prodForm, operatorId: e.target.value })} className="w-full p-2 border rounded-lg font-bold"><option value="">Selecione...</option>{operators.filter(op => !op.sector || op.sector === currentMachine?.sector).map(op => <option key={op.id} value={op.id}>{op.name}</option>)}</select></div>
+                <div><Input label="Ciclagem" value={prodForm.cycleRate} onChange={e => setProdForm({ ...prodForm, cycleRate: e.target.value })} placeholder="0,0" /></div>
+                <div><ProductSelect products={products.filter(p => !p.compatibleMachines || p.compatibleMachines.includes(selectedMachine))} value={prodForm.productCode ? Number(prodForm.productCode) : null} onChange={v => setProdForm({ ...prodForm, productCode: v?.toString() || '' })} /></div>
+                <div><Input ref={prodWeightRef} label="Peso (kg)" value={prodForm.weight} onChange={e => setProdForm({ ...prodForm, weight: e.target.value })} placeholder="0,00" /></div>
+                <div><Input label="Caixas (Qtd)" value={prodForm.boxes} onChange={e => setProdForm({ ...prodForm, boxes: e.target.value })} placeholder="0" /></div>
               </div>
             </div>
-            <div className="p-4 bg-slate-50 border-t flex justify-end gap-3"><button onClick={() => setIsProdModalOpen(false)} className="px-4 py-2 text-slate-500 font-bold">Cancelar</button><button onClick={() => handleSaveProd(true)} disabled={isSavingLocal} className="px-6 py-2 bg-brand-600 text-white font-bold rounded shadow hover:bg-brand-700 flex items-center">{isSavingLocal ? <Loader2 className="animate-spin mr-2" size={18}/> : <Save className="mr-2" size={18}/>} Salvar</button></div>
+            <div className="p-4 bg-slate-50 border-t flex justify-end gap-3"><button onClick={() => setIsProdModalOpen(false)} className="px-4 py-2 text-slate-500 font-bold">Cancelar</button><button onClick={() => handleSaveProd(true)} disabled={isSavingLocal} className="px-6 py-2 bg-brand-600 text-white font-bold rounded shadow hover:bg-brand-700 flex items-center">{isSavingLocal ? <Loader2 className="animate-spin mr-2" size={18} /> : <Save className="mr-2" size={18} />} Salvar</button></div>
           </div>
         </div>
       )}
@@ -335,12 +353,12 @@ const FastEntryPage: React.FC = () => {
       {isStopModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in zoom-in-95">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
-            <div className="p-4 border-b bg-red-50 flex justify-between items-center"><h3 className="font-bold text-red-800">Registrar Parada</h3><button onClick={() => setIsStopModalOpen(false)}><X size={24}/></button></div>
+            <div className="p-4 border-b bg-red-50 flex justify-between items-center"><h3 className="font-bold text-red-800">Registrar Parada</h3><button onClick={() => setIsStopModalOpen(false)}><X size={24} /></button></div>
             <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4"><Input ref={stopStartRef} label="Início" type="time" value={stopForm.startTime} onChange={e => setStopForm({...stopForm, startTime: e.target.value})} /><Input label="Fim" type="time" value={stopForm.endTime} onChange={e => setStopForm({...stopForm, endTime: e.target.value})} /></div>
-              <div><label className="text-xs font-bold uppercase text-slate-500">Motivo</label><select value={stopForm.reasonId} onChange={e => setStopForm({...stopForm, reasonId: e.target.value})} className="w-full p-2 border rounded-lg font-bold"><option value="">Selecione...</option>{downtimeTypes.map(d => <option key={d.id} value={d.id}>{d.description}</option>)}</select></div>
+              <div className="grid grid-cols-2 gap-4"><Input ref={stopStartRef} label="Início" type="time" value={stopForm.startTime} onChange={e => setStopForm({ ...stopForm, startTime: e.target.value })} /><Input label="Fim" type="time" value={stopForm.endTime} onChange={e => setStopForm({ ...stopForm, endTime: e.target.value })} /></div>
+              <div><label className="text-xs font-bold uppercase text-slate-500">Motivo</label><select value={stopForm.reasonId} onChange={e => setStopForm({ ...stopForm, reasonId: e.target.value })} className="w-full p-2 border rounded-lg font-bold"><option value="">Selecione...</option>{downtimeTypes.map(d => <option key={d.id} value={d.id}>{d.id} - {d.description}</option>)}</select></div>
             </div>
-            <div className="p-4 bg-slate-50 border-t flex justify-end gap-3"><button onClick={() => setIsStopModalOpen(false)} className="px-4 py-2 text-slate-500 font-bold">Cancelar</button><button onClick={() => handleSaveStop(true)} disabled={isSavingLocal} className="px-6 py-2 bg-brand-600 text-white font-bold rounded shadow hover:bg-brand-700 flex items-center">{isSavingLocal ? <Loader2 className="animate-spin mr-2" size={18}/> : <Save className="mr-2" size={18}/>} Salvar</button></div>
+            <div className="p-4 bg-slate-50 border-t flex justify-end gap-3"><button onClick={() => setIsStopModalOpen(false)} className="px-4 py-2 text-slate-500 font-bold">Cancelar</button><button onClick={() => handleSaveStop(true)} disabled={isSavingLocal} className="px-6 py-2 bg-brand-600 text-white font-bold rounded shadow hover:bg-brand-700 flex items-center">{isSavingLocal ? <Loader2 className="animate-spin mr-2" size={18} /> : <Save className="mr-2" size={18} />} Salvar</button></div>
           </div>
         </div>
       )}

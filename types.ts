@@ -16,14 +16,14 @@ export interface Product {
 
 // NEW: Interface para a View Materializada de Custos
 export interface ProductCostSummary {
-    productCode: number;
-    productName: string;
-    sellingPrice: number;
-    materialCost: number;
-    packagingCost: number;
-    operationalCost: number;
-    totalCost: number; // Calculado no SQL
-    // Margins are calculated in JS or SQL, prefer SQL
+  productCode: number;
+  productName: string;
+  sellingPrice: number;
+  materialCost: number;
+  packagingCost: number;
+  operationalCost: number;
+  totalCost: number; // Calculado no SQL
+  // Margins are calculated in JS or SQL, prefer SQL
 }
 
 export interface Operator {
@@ -39,12 +39,12 @@ export interface Operator {
 }
 
 // Alterado para string para suportar cadastro dinâmico
-export type MachineSector = string; 
+export type MachineSector = string;
 
 export interface Sector {
-    id: string;
-    name: string;
-    active: boolean;
+  id: string;
+  name: string;
+  active: boolean;
 }
 
 export interface Machine {
@@ -76,8 +76,8 @@ export interface ScrapReason {
 
 // NEW: Categoria de Produto Dinâmica
 export interface ProductCategory {
-    id: string;
-    name: string;
+  id: string;
+  name: string;
 }
 
 // ARQUITETURA FLEXÍVEL: Definição de Campos Dinâmicos
@@ -110,7 +110,7 @@ export interface ProductionEntry {
   scrapReasonId?: string; // NEW: Motivo do Refugo
   observations: string;
   createdAt: number;
-  
+
   // Novos campos específicos de Processo
   cycleRate?: number;      // Ciclagem de Máquina
   measuredWeight?: number; // Peso medido da bobina/unidade
@@ -119,10 +119,10 @@ export interface ProductionEntry {
   // New fields for Downtime
   downtimeMinutes: number;
   downtimeTypeId?: string;
-  
+
   // FLEXIBILIDADE: Armazena qualquer dado extra definido na configuração
   metaData?: Record<string, any>;
-  
+
   // Link to Production Order (New)
   productionOrderId?: string;
 }
@@ -158,17 +158,17 @@ export interface DashboardMetrics {
 
 // NEW: Interface agregada para o Dashboard v2 (RPC)
 export interface DashboardSummary {
-    kpis: {
-        produced: number;
-        defects: number;
-        entriesCount: number;
-        efficiency: number; 
-    };
-    products: { name: string; ok: number; defect: number }[];
-    operators: { name: string; ok: number; defect: number }[];
-    shifts: { name: string; ok: number; defect: number }[];
-    machines: any[]; // Polymorphic: Gantt events or Aggregate Stats
-    isShortPeriod: boolean;
+  kpis: {
+    produced: number;
+    defects: number;
+    entriesCount: number;
+    efficiency: number;
+  };
+  products: { name: string; ok: number; defect: number }[];
+  operators: { name: string; ok: number; defect: number }[];
+  shifts: { name: string; ok: number; defect: number }[];
+  machines: any[]; // Polymorphic: Gantt events or Aggregate Stats
+  isShortPeriod: boolean;
 }
 
 export type AlertType = 'quality' | 'productivity' | 'downtime';
@@ -187,21 +187,25 @@ export interface AppAlert {
 export interface AppSettings {
   shiftHours: number;
   efficiencyTarget: number; // %
-  maintenanceMode: boolean; 
+  maintenanceMode: boolean;
   // NOVAS REGRAS DE VALIDAÇÃO
   requireScrapReason: boolean;      // Exigir motivo se refugo > 0
   blockExcessProduction: boolean;   // Bloquear se qtd > capacidade teórica
   requireDowntimeNotes: boolean;    // Exigir observação em paradas
   enableProductionOrders: boolean;  // Habilitar módulo de Ordens de Produção
+
+  // ALARM LIMITS
+  extrusionScrapLimit?: number; // %
+  thermoformingScrapLimit?: number; // %
 }
 
 export interface WorkShift {
-    id: string;
-    name: string;
-    startTime: string; // HH:mm
-    endTime: string;   // HH:mm
-    active: boolean;
-    sector?: string; // NEW: Vincula o turno a um setor específico (ou null para Global)
+  id: string;
+  name: string;
+  startTime: string; // HH:mm
+  endTime: string;   // HH:mm
+  active: boolean;
+  sector?: string; // NEW: Vincula o turno a um setor específico (ou null para Global)
 }
 
 // --- Auth Types ---

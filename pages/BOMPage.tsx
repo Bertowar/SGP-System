@@ -55,7 +55,7 @@ const BOMPage: React.FC = () => {
         if (!selectedProduct || !formMatId || !formQty) return;
         try {
             await saveBOM({
-                id: isEditingId || '', 
+                id: isEditingId || '',
                 productCode: selectedProduct,
                 materialId: formMatId,
                 quantityRequired: Number(formQty)
@@ -80,17 +80,17 @@ const BOMPage: React.FC = () => {
     };
 
     const getCategoryIcon = (cat?: MaterialCategory) => {
-        switch(cat) {
-            case 'packaging': return <Box size={14} className="text-orange-500"/>;
-            case 'energy': return <Zap size={14} className="text-yellow-500"/>;
-            case 'labor': return <User size={14} className="text-blue-500"/>;
-            case 'raw_material': return <Hammer size={14} className="text-slate-500"/>;
-            default: return <Hammer size={14} className="text-slate-500"/>;
+        switch (cat) {
+            case 'packaging': return <Box size={14} className="text-orange-500" />;
+            case 'energy': return <Zap size={14} className="text-yellow-500" />;
+            case 'labor': return <User size={14} className="text-blue-500" />;
+            case 'raw_material': return <Hammer size={14} className="text-slate-500" />;
+            default: return <Hammer size={14} className="text-slate-500" />;
         }
     };
 
     const getCategoryLabel = (cat?: MaterialCategory) => {
-        switch(cat) {
+        switch (cat) {
             case 'packaging': return 'Embalagem';
             case 'energy': return 'Energia';
             case 'labor': return 'Mão de Obra';
@@ -121,11 +121,10 @@ const BOMPage: React.FC = () => {
                         <button
                             key={p.codigo}
                             onClick={() => setSelectedProduct(p.codigo)}
-                            className={`w-full text-left p-3 rounded-lg text-sm transition-colors ${
-                                selectedProduct === p.codigo 
-                                ? 'bg-brand-50 text-brand-700 font-bold ring-1 ring-brand-200' 
+                            className={`w-full text-left p-3 rounded-lg text-sm transition-colors ${selectedProduct === p.codigo
+                                ? 'bg-brand-50 text-brand-700 font-bold ring-1 ring-brand-200'
                                 : 'text-slate-600 hover:bg-slate-50'
-                            }`}
+                                }`}
                         >
                             <div className="flex justify-between">
                                 <span>{p.produto}</span>
@@ -140,14 +139,22 @@ const BOMPage: React.FC = () => {
             <div className="flex-1 bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col">
                 {selectedProduct ? (
                     <>
-                        <div className="p-6 border-b border-slate-100">
-                            <h2 className="text-2xl font-bold text-slate-800 flex items-center">
-                                <Wrench className="mr-3 text-brand-600" />
-                                Ficha Técnica (BOM)
-                            </h2>
-                            <p className="text-slate-500">
-                                Recursos consumidos para <b>1 unidade</b> de {products.find(p => p.codigo === selectedProduct)?.produto}.
-                            </p>
+                        <div className="p-6 border-b border-slate-100 flex justify-between items-start">
+                            <div>
+                                <h2 className="text-2xl font-bold text-slate-800 flex items-center">
+                                    <Wrench className="mr-3 text-brand-600" />
+                                    Ficha Técnica (BOM)
+                                </h2>
+                                <p className="text-slate-500 mt-1">
+                                    Recursos consumidos para <b>1 unidade</b> de {products.find(p => p.codigo === selectedProduct)?.produto}.
+                                </p>
+                            </div>
+                            <div className="text-right">
+                                <span className="text-xs uppercase font-bold text-slate-400 block mb-1">Custo Estimado / Un</span>
+                                <span className="text-2xl font-bold text-brand-700 font-mono">
+                                    {bomItems.reduce((acc, item) => acc + (item.quantityRequired * (item.material?.unitCost || 0)), 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </span>
+                            </div>
                         </div>
 
                         <div className="flex-1 p-6 overflow-y-auto">
@@ -161,26 +168,41 @@ const BOMPage: React.FC = () => {
                                             <table className="w-full text-sm text-left">
                                                 <thead className="text-slate-500 font-medium">
                                                     <tr>
-                                                        <th className="px-2 py-1 w-1/2">Recurso</th>
+                                                        <th className="px-2 py-1 w-1/3">Recurso</th>
                                                         <th className="px-2 py-1">Qtd</th>
-                                                        <th className="px-2 py-1">Un</th>
+                                                        <th className="px-2 py-1 text-right">Custo Un.</th>
+                                                        <th className="px-2 py-1 text-right">Total</th>
                                                         <th className="px-2 py-1 text-right">Ações</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-50">
-                                                    {(items as ProductBOM[]).map(item => (
-                                                        <tr key={item.id} className="hover:bg-slate-50 group">
-                                                            <td className="px-2 py-2 font-medium text-slate-800">{item.material?.name}</td>
-                                                            <td className="px-2 py-2 font-mono text-slate-700">{item.quantityRequired}</td>
-                                                            <td className="px-2 py-2 text-slate-500 text-xs">{item.material?.unit}</td>
-                                                            <td className="px-2 py-2 text-right">
-                                                                <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                    <button onClick={() => handleEdit(item)} className="text-blue-500 hover:text-blue-700" title="Editar"><Edit size={14}/></button>
-                                                                    <button onClick={() => handleDelete(item.id)} className="text-red-500 hover:text-red-700" title="Remover"><Trash2 size={14}/></button>
-                                                                </div>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
+                                                    {(items as ProductBOM[]).map(item => {
+                                                        const cost = item.material?.unitCost || 0;
+                                                        const total = cost * item.quantityRequired;
+                                                        return (
+                                                            <tr key={item.id} className="hover:bg-slate-50 group">
+                                                                <td className="px-2 py-2 font-medium text-slate-800">{item.material?.name}</td>
+                                                                <td className="px-2 py-2">
+                                                                    <span className="font-mono text-slate-700 font-bold">{item.quantityRequired}</span>
+                                                                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                                                        {item.material?.unit}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-2 py-2 text-right text-slate-600">
+                                                                    {cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                                                </td>
+                                                                <td className="px-2 py-2 text-right font-mono text-slate-800 font-bold">
+                                                                    {total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                                                </td>
+                                                                <td className="px-2 py-2 text-right">
+                                                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                        <button onClick={() => handleEdit(item)} className="text-blue-500 hover:text-blue-700" title="Editar"><Edit size={14} /></button>
+                                                                        <button onClick={() => handleDelete(item.id)} className="text-red-500 hover:text-red-700" title="Remover"><Trash2 size={14} /></button>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
                                                 </tbody>
                                             </table>
                                         </div>
@@ -201,7 +223,7 @@ const BOMPage: React.FC = () => {
                             <form onSubmit={handleSave} className="flex gap-4 items-end">
                                 <div className="flex-1">
                                     <label className="block text-xs font-semibold text-slate-500 mb-1">Recurso</label>
-                                    <select 
+                                    <select
                                         className="w-full px-3 py-2 border rounded-lg bg-white"
                                         value={formMatId}
                                         onChange={e => setFormMatId(e.target.value)}
@@ -218,9 +240,9 @@ const BOMPage: React.FC = () => {
                                 </div>
                                 <div className="w-32">
                                     <label className="block text-xs font-semibold text-slate-500 mb-1">Quantidade</label>
-                                    <input 
-                                        type="number" 
-                                        step="0.0001" 
+                                    <input
+                                        type="number"
+                                        step="0.0001"
                                         className="w-full px-3 py-2 border rounded-lg"
                                         placeholder="0.00"
                                         value={formQty}

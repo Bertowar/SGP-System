@@ -19,8 +19,8 @@ const AuthContext = createContext<AuthContextType>({
   session: null,
   loading: true,
   isAdmin: false,
-  manualLogin: async () => {},
-  logout: async () => {},
+  manualLogin: async () => { },
+  logout: async () => { },
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -28,70 +28,83 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // MODO DESENVOLVIMENTO (SEM LOGIN)
-  // Para reativar o login real, remova este useEffect e descomente o useEffect abaixo dele.
+  // --- MODO DESENVOLVIMENTO (Auth Bypass) ---
   useEffect(() => {
+    console.warn("⚠️ MODO DEV ATIVO: Login automático como Admin.");
+
     const devUser: UserProfile = {
-        id: 'dev-mode-user',
-        email: 'dev@pplast.com',
-        role: 'admin', // Full Access (Admin > Manager > Supervisor > Operator)
-        fullName: 'Desenvolvedor (Admin)'
+      id: 'dev-admin-id',
+      email: 'dev@admin.com',
+      role: 'admin',
+      fullName: 'Desenvolvedor (Admin)'
     };
-    
-    // Simula um delay mínimo para não quebrar renderizações
+
+    // Simula delay para não quebrar UI que depende de loading state transitions
     setTimeout(() => {
-        setUser(devUser);
-        setSession({ user: { id: 'dev-mode-user', email: 'dev@pplast.com' } } as any);
-        setLoading(false);
+      setUser(devUser);
+      setSession({
+        access_token: 'fake-token',
+        token_type: 'bearer',
+        user: { id: 'dev-admin-id', email: 'dev@admin.com', aud: 'authenticated' }
+      } as Session);
+      setLoading(false);
     }, 100);
   }, []);
 
   /* 
-  // LÓGICA ORIGINAL (COMENTADA PARA MODO DEV)
+  // AUTENTICAÇÃO REAL (Desativada temporariamente para Dev)
   useEffect(() => {
+    let isMounted = true;
     const init = async () => {
-        try {
-            const { data: { session } } = await supabase.auth.getSession();
-            setSession(session);
-            if (session?.user) {
-                const profile = await getUserProfile(session.user.id);
-                setUser(profile);
-            }
-        } catch (e) {
-            console.error("Auth init error", e);
-        } finally {
-            setLoading(false);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (isMounted) {
+          setSession(session);
+          if (session?.user) {
+            const profile = await getUserProfile(session.user.id);
+            if (isMounted) setUser(profile);
+          }
         }
+      } catch (e) {
+        console.error("Auth init error", e);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
     };
     init();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!isMounted) return;
       setSession(session);
       if (session?.user) {
-         if (!user || user.id !== session.user.id) {
-             const profile = await getUserProfile(session.user.id);
-             setUser(profile);
-         }
+        const profile = await getUserProfile(session.user.id);
+        if (isMounted) setUser(profile);
+      } else {
+        if (isMounted) setUser(null);
       }
+      if (isMounted) setLoading(false);
     });
-    return () => subscription.unsubscribe();
+
+    const timer = setTimeout(() => {
+      if (isMounted) setLoading(false);
+    }, 3000);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+      subscription.unsubscribe();
+    };
   }, []);
   */
 
   const manualLogin = async (email: string, pass: string) => {
-    // No modo Dev, essa função é irrelevante, mas mantemos a estrutura
-    alert("Modo Dev ativo: Login automático.");
+    await supabaseSignIn(email, pass);
   };
 
   const logout = async () => {
-    // No modo Dev, "sair" apenas recarrega a página (que loga de novo automaticamente)
-    if (confirm("No modo desenvolvimento, o login é automático. A página será recarregada.")) {
-        window.location.reload();
-    }
-    // Lógica real seria:
-    // setUser(null);
-    // setSession(null);
-    // await supabaseSignOut();
+    setUser(null);
+    setSession(null);
+    await supabaseSignOut();
   };
 
   const value = {

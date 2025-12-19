@@ -10,19 +10,22 @@ interface ProductSelectProps {
   error?: string;
   inputRef?: React.RefObject<any>; // Changed to any to accept Div ref
   onNext?: () => void;
+  fullList?: Product[]; // Lista completa para garantir resolução do produto selecionado mesmo com filtro
 }
 
-export const ProductSelect: React.FC<ProductSelectProps> = ({ products, value, onChange, error, inputRef, onNext }) => {
+export const ProductSelect: React.FC<ProductSelectProps> = ({ products, value, onChange, error, inputRef, onNext, fullList }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const wrapperRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null); // Internal ref for the search input
-  
+
   // Local ref for the trigger if parent doesn't provide one
   const localTriggerRef = useRef<HTMLDivElement>(null);
   const actualTriggerRef = inputRef || localTriggerRef;
 
-  const selectedProduct = products.find(p => p.codigo === value);
+  // Busca na lista completa se disponível, senão na lista filtrada (fallback)
+  const sourceList = fullList || products;
+  const selectedProduct = sourceList.find(p => p.codigo === value);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -39,7 +42,7 @@ export const ProductSelect: React.FC<ProductSelectProps> = ({ products, value, o
   // Auto-focus search input when menu opens
   useEffect(() => {
     if (isOpen) {
-        setTimeout(() => searchInputRef.current?.focus(), 50);
+      setTimeout(() => searchInputRef.current?.focus(), 50);
     }
   }, [isOpen]);
 
@@ -56,48 +59,47 @@ export const ProductSelect: React.FC<ProductSelectProps> = ({ products, value, o
     // Return focus to trigger so Tab flow continues naturally? 
     // Or move to next field directly.
     if (onNext) {
-        setTimeout(() => onNext(), 50); 
+      setTimeout(() => onNext(), 50);
     } else {
-        actualTriggerRef.current?.focus();
+      actualTriggerRef.current?.focus();
     }
   };
 
   const handleInputKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
-        e.preventDefault();
-        if (isOpen && filteredProducts.length > 0) {
-            handleSelect(filteredProducts[0]);
-        } else if (selectedProduct && onNext) {
-            onNext();
-        }
+      e.preventDefault();
+      if (isOpen && filteredProducts.length > 0) {
+        handleSelect(filteredProducts[0]);
+      } else if (selectedProduct && onNext) {
+        onNext();
+      }
     }
   };
 
   // Handle keys on the trigger div (when closed)
   const handleTriggerKeyDown = (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
-          e.preventDefault();
-          setIsOpen(true);
-      }
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      setIsOpen(true);
+    }
   };
 
   return (
     <div className="flex flex-col space-y-1 relative" ref={wrapperRef}>
       <label className="text-sm font-semibold text-slate-700">Produto *</label>
-      
-      <div 
+
+      <div
         ref={actualTriggerRef}
         tabIndex={0} // Make focusable
-        className={`px-3 py-2 bg-white border rounded-lg cursor-pointer flex items-center justify-between transition-all outline-none focus:ring-2 focus:ring-brand-500 ${
-          error ? 'border-red-500' : 'border-slate-300 hover:border-brand-400'
-        } ${isOpen ? 'ring-2 ring-brand-500 border-brand-500' : ''}`}
+        className={`px-3 py-2 bg-white border rounded-lg cursor-pointer flex items-center justify-between transition-all outline-none focus:ring-2 focus:ring-brand-500 ${error ? 'border-red-500' : 'border-slate-300 hover:border-brand-400'
+          } ${isOpen ? 'ring-2 ring-brand-500 border-brand-500' : ''}`}
         onClick={() => setIsOpen(!isOpen)}
         onFocus={() => setIsOpen(true)} // Auto open on focus (Tab/Enter from prev field)
         onKeyDown={handleTriggerKeyDown}
       >
         <span className={`block truncate ${!selectedProduct ? 'text-slate-400' : 'text-slate-900'}`}>
-          {selectedProduct 
-            ? `${selectedProduct.produto} - ${selectedProduct.descricao}` 
+          {selectedProduct
+            ? `${selectedProduct.produto} - ${selectedProduct.descricao}`
             : 'Selecione um produto...'}
         </span>
       </div>
@@ -118,7 +120,7 @@ export const ProductSelect: React.FC<ProductSelectProps> = ({ products, value, o
                 onKeyDown={handleInputKeyDown}
               />
               {searchTerm && (
-                <button 
+                <button
                   onClick={() => setSearchTerm('')}
                   className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
                 >
@@ -127,7 +129,7 @@ export const ProductSelect: React.FC<ProductSelectProps> = ({ products, value, o
               )}
             </div>
           </div>
-          
+
           <div className="overflow-y-auto flex-1">
             {filteredProducts.length === 0 ? (
               <div className="p-4 text-center text-slate-500 text-sm">Nenhum produto encontrado.</div>
@@ -135,9 +137,8 @@ export const ProductSelect: React.FC<ProductSelectProps> = ({ products, value, o
               filteredProducts.map((product) => (
                 <div
                   key={product.codigo}
-                  className={`p-3 text-sm cursor-pointer hover:bg-brand-50 transition-colors border-b border-slate-50 last:border-0 ${
-                    value === product.codigo ? 'bg-brand-50 text-brand-700 font-medium' : 'text-slate-700'
-                  }`}
+                  className={`p-3 text-sm cursor-pointer hover:bg-brand-50 transition-colors border-b border-slate-50 last:border-0 ${value === product.codigo ? 'bg-brand-50 text-brand-700 font-medium' : 'text-slate-700'
+                    }`}
                   onClick={() => handleSelect(product)}
                 >
                   <div className="flex justify-between items-baseline mb-1">
@@ -151,7 +152,7 @@ export const ProductSelect: React.FC<ProductSelectProps> = ({ products, value, o
           </div>
         </div>
       )}
-      
+
       {error && <span className="text-xs text-red-500 font-medium">{error}</span>}
     </div>
   );

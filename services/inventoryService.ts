@@ -8,7 +8,7 @@ import { formatError } from './utils';
 export const fetchMaterials = async (): Promise<RawMaterial[]> => {
     try {
         const { data, error } = await supabase.from('raw_materials').select('*').order('name');
-        if(error) return [];
+        if (error) return [];
         return data.map((d: any) => ({
             id: d.id,
             code: d.code,
@@ -20,24 +20,24 @@ export const fetchMaterials = async (): Promise<RawMaterial[]> => {
             category: d.category || 'raw_material',
             group: d.group_name || 'Diversos'
         }));
-    } catch(e) { return []; }
+    } catch (e) { return []; }
 };
 
 export const saveMaterial = async (mat: RawMaterial): Promise<void> => {
-    const dbMat = { 
-        code: mat.code, 
-        name: mat.name, 
-        unit: mat.unit, 
-        current_stock: mat.currentStock, 
-        min_stock: mat.minStock, 
-        unit_cost: mat.unitCost, 
+    const dbMat = {
+        code: mat.code,
+        name: mat.name,
+        unit: mat.unit,
+        current_stock: mat.currentStock,
+        min_stock: mat.minStock,
+        unit_cost: mat.unitCost,
         category: mat.category,
-        group_name: mat.group 
+        group_name: mat.group
     };
 
     const payload = mat.id ? { ...dbMat, id: mat.id } : dbMat;
     const { error } = await supabase.from('raw_materials').upsert([payload], { onConflict: 'code' });
-    
+
     if (error) {
         console.warn("Possible missing column 'group_name'. Retrying with legacy schema.");
         const legacyPayload = { ...payload };
@@ -64,7 +64,7 @@ export const fetchBOM = async (productCode: number): Promise<ProductBOM[]> => {
             id: d.id, productCode: d.product_code, materialId: d.material_id, quantityRequired: d.quantity_required,
             material: d.material ? { id: d.material.id, code: d.material.code, name: d.material.name, unit: d.material.unit, currentStock: d.material.current_stock, minStock: d.material.min_stock, unitCost: d.material.unit_cost, category: d.material.category, group: d.material.group_name } : undefined
         }));
-    } catch(e) { return []; }
+    } catch (e) { return []; }
 };
 
 export const fetchAllBOMs = async (): Promise<ProductBOM[]> => {
@@ -75,7 +75,7 @@ export const fetchAllBOMs = async (): Promise<ProductBOM[]> => {
             id: d.id, productCode: d.product_code, materialId: d.material_id, quantityRequired: d.quantity_required,
             material: d.material ? { id: d.material.id, code: d.material.code, name: d.material.name, unit: d.material.unit, currentStock: d.material.current_stock, minStock: d.material.min_stock, unitCost: d.material.unit_cost, category: d.material.category, group: d.material.group_name } : undefined
         }));
-    } catch(e) { return []; }
+    } catch (e) { return []; }
 };
 
 export const saveBOM = async (bom: Omit<ProductBOM, 'material'>): Promise<void> => {
@@ -116,7 +116,7 @@ export const fetchPurchaseItems = async (orderId: string): Promise<PurchaseOrder
 };
 export const savePurchaseOrder = async (order: Partial<PurchaseOrder>): Promise<string> => {
     const dbOrder = { supplier_id: order.supplierId, status: order.status, date_expected: order.dateExpected, notes: order.notes };
-    if (order.id) { await supabase.from('purchase_orders').update(dbOrder).eq('id', order.id); return order.id; } 
+    if (order.id) { await supabase.from('purchase_orders').update(dbOrder).eq('id', order.id); return order.id; }
     else { const { data } = await supabase.from('purchase_orders').insert([dbOrder]).select().single(); return data.id; }
 };
 export const savePurchaseItem = async (item: Partial<PurchaseOrderItem>): Promise<void> => {
@@ -126,13 +126,13 @@ export const deletePurchaseItem = async (itemId: string): Promise<void> => { awa
 export const deletePurchaseOrder = async (orderId: string): Promise<void> => { await supabase.from('purchase_order_items').delete().eq('order_id', orderId); await supabase.from('purchase_orders').delete().eq('id', orderId); };
 export const receivePurchaseOrder = async (orderId: string): Promise<void> => {
     const items = await fetchPurchaseItems(orderId);
-    for (const item of items) { await processStockTransaction({ materialId: item.materialId, type: 'IN', quantity: item.quantity, notes: `Recebimento #${orderId.slice(0,8)}` }); }
+    for (const item of items) { await processStockTransaction({ materialId: item.materialId, type: 'IN', quantity: item.quantity, notes: `Recebimento #${orderId.slice(0, 8)}` }); }
     await supabase.from('purchase_orders').update({ status: 'RECEIVED' }).eq('id', orderId);
 };
 
 export const fetchInventoryTransactions = async (): Promise<InventoryTransaction[]> => {
     try {
-        const { data: trxData } = await supabase.from('inventory_transactions').select('*').order('created_at', { ascending: false }).limit(100); 
+        const { data: trxData } = await supabase.from('inventory_transactions').select('*').order('created_at', { ascending: false }).limit(100);
         if (!trxData) return [];
         const materialIds = [...new Set(trxData.map((t: any) => t.material_id).filter(Boolean))];
         const { data: matData } = await supabase.from('raw_materials').select('*').in('id', materialIds);
@@ -148,16 +148,20 @@ export const fetchMaterialTransactions = async (materialId: string): Promise<Inv
     return (data || []).map((d: any) => ({ id: d.id, materialId: d.material_id, type: d.type, quantity: d.quantity, notes: d.notes || '', relatedEntryId: d.related_entry_id, createdAt: d.created_at }));
 };
 
-export const processStockTransaction = async (trx: Omit<InventoryTransaction, 'id' | 'createdAt' | 'material'>): Promise<void> => {
+export const processStockTransaction = async (trx: Omit<InventoryTransaction, 'id' | 'createdAt' | 'material'>, newUnitCost?: number): Promise<void> => {
     const qty = Number(trx.quantity);
     const { data: mat } = await supabase.from('raw_materials').select('id, current_stock, name').eq('id', trx.materialId).single();
     if (!mat) throw new Error("Material não encontrado.");
     let newStock = Number(mat.current_stock) || 0;
     if (trx.type === 'IN') newStock += qty;
     else if (trx.type === 'OUT') newStock -= qty;
-    else if (trx.type === 'ADJ') newStock = qty; 
+    else if (trx.type === 'ADJ') newStock = qty;
     await supabase.from('inventory_transactions').insert([{ material_id: trx.materialId, type: trx.type, quantity: trx.quantity, related_entry_id: trx.relatedEntryId, notes: trx.notes || null }]);
-    await supabase.from('raw_materials').update({ current_stock: newStock }).eq('id', trx.materialId);
+
+    const updatePayload: any = { current_stock: newStock };
+    if (newUnitCost !== undefined) updatePayload.unit_cost = newUnitCost;
+
+    await supabase.from('raw_materials').update(updatePayload).eq('id', trx.materialId);
 };
 
 export const processStockDeduction = async (entry: { productCode?: number | null, qtyOK: number, id: string }): Promise<void> => {
@@ -191,7 +195,7 @@ export const fetchShippingOrders = async (): Promise<ShippingOrder[]> => {
 };
 export const saveShippingOrder = async (order: ShippingOrder): Promise<string> => {
     const dbOrder = { customer_name: order.customerName, order_number: order.orderNumber, status: order.status, scheduled_date: order.scheduledDate };
-    if (order.id) { await supabase.from('shipping_orders').update(dbOrder).eq('id', order.id); return order.id; } 
+    if (order.id) { await supabase.from('shipping_orders').update(dbOrder).eq('id', order.id); return order.id; }
     else { const { data } = await supabase.from('shipping_orders').insert([dbOrder]).select().single(); return data.id; }
 };
 export const deleteShippingOrder = async (id: string): Promise<void> => { await supabase.from('shipping_orders').delete().eq('id', id); };

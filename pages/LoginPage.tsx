@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Box, Lock, Mail, Loader2, Info } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -10,15 +10,15 @@ const LoginPage: React.FC = () => {
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [localLoading, setLocalLoading] = useState(false);
-  
+
   const { manualLogin } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
     const savedEmail = localStorage.getItem('pplast_saved_email');
     if (savedEmail) {
-        setEmail(savedEmail);
-        setRememberMe(true);
+      setEmail(savedEmail);
+      setRememberMe(true);
     }
   }, []);
 
@@ -56,7 +56,7 @@ const LoginPage: React.FC = () => {
           </div>
           <p className="text-brand-200 text-sm mt-1">Gestão de Produção e Custos</p>
         </div>
-        
+
         <div className="p-8">
           <form onSubmit={handleLogin} className="space-y-6">
             {error && (
@@ -65,7 +65,7 @@ const LoginPage: React.FC = () => {
                 {error}
               </div>
             )}
-            
+
             <div className="space-y-2">
               <label className="text-sm font-bold text-slate-800">Email</label>
               <div className="relative">
@@ -99,21 +99,21 @@ const LoginPage: React.FC = () => {
             </div>
 
             <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                    <input 
-                        id="remember-me" 
-                        type="checkbox" 
-                        checked={rememberMe}
-                        onChange={(e) => setRememberMe(e.target.checked)}
-                        className="h-4 w-4 text-brand-600 focus:ring-brand-500 border-gray-300 rounded cursor-pointer"
-                    />
-                    <label htmlFor="remember-me" className="ml-2 block text-sm text-slate-700 cursor-pointer select-none">
-                        Lembrar-me
-                    </label>
-                </div>
-                <a href="#" className="text-sm font-medium text-brand-600 hover:text-brand-500">
-                    Esqueceu a senha?
-                </a>
+              <div className="flex items-center">
+                <input
+                  id="remember-me"
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="h-4 w-4 text-brand-600 focus:ring-brand-500 border-gray-300 rounded cursor-pointer"
+                />
+                <label htmlFor="remember-me" className="ml-2 block text-sm text-slate-700 cursor-pointer select-none">
+                  Lembrar-me
+                </label>
+              </div>
+              <Link to="/forgot-password" className="text-sm font-medium text-brand-600 hover:text-brand-500">
+                Esqueceu a senha?
+              </Link>
             </div>
 
             <button
@@ -124,7 +124,7 @@ const LoginPage: React.FC = () => {
               {localLoading ? <Loader2 className="animate-spin" /> : 'ACESSAR SISTEMA'}
             </button>
           </form>
-          
+
           <div className="mt-6 text-center">
             <p className="text-xs text-slate-400">Problemas de acesso? Contate o suporte.</p>
           </div>
