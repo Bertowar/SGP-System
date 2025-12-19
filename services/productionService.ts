@@ -458,13 +458,13 @@ export const fetchDashboardStats = async (startDate: string, endDate: string): P
         });
 
         if (error) {
-            console.error("Dashboard RPC Error:", error);
-            return null;
+            console.error("Dashboard RPC Error FULL:", JSON.stringify(error, null, 2));
+            throw error;
         }
 
         return data as DashboardSummary;
     } catch (e) {
         console.error("Dashboard fetch error:", e);
-        return null;
+        throw e;
     }
 };

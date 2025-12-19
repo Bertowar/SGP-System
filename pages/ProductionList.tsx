@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  fetchEntriesByDate, deleteEntry, fetchProducts, fetchOperators, fetchDowntimeTypes, fetchMachines, fetchSectors, formatError
+import {
+    fetchEntriesByDate, deleteEntry, fetchProducts, fetchOperators, fetchDowntimeTypes, fetchMachines, fetchSectors, formatError
 } from '../services/storage';
 import { ProductionEntry, Product, Operator, DowntimeType, Machine, Sector } from '../types';
 import { Trash2, Edit, Calendar, Loader2, AlertCircle, X, Eye, Clock, Cpu, Users, Package, Timer, Bookmark, Filter, XCircle } from 'lucide-react';
@@ -33,6 +33,8 @@ interface GroupedEntry {
     totalStopMinutes: number;
     totalOk: number;
     totalDefect: number;
+    totalWeight: number; // New Field
+    totalReturn: number; // New Field: Retorno
     entries: ProductionEntry[];
     hasDrafts: boolean; // New Flag
 }
@@ -63,14 +65,14 @@ const DeleteConfirmationModal: React.FC<DeleteModalProps> = ({ isOpen, onClose, 
                         {message}
                     </div>
                     <div className="flex justify-end space-x-3">
-                        <button 
+                        <button
                             onClick={onClose}
                             disabled={isDeleting}
                             className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 font-medium transition-colors"
                         >
                             Cancelar
                         </button>
-                        <button 
+                        <button
                             onClick={onConfirm}
                             disabled={isDeleting}
                             className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium shadow-md flex items-center transition-colors disabled:opacity-70"
@@ -109,7 +111,7 @@ const DetailsModal: React.FC<DetailsModalProps> = ({ isOpen, onClose, group, pro
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500"><X size={20} /></button>
                 </div>
-                
+
                 <div className="overflow-y-auto p-0">
                     <table className="w-full text-sm text-left">
                         <thead className="bg-slate-50 text-slate-700 font-semibold border-b">
@@ -139,11 +141,11 @@ const DetailsModal: React.FC<DetailsModalProps> = ({ isOpen, onClose, group, pro
                                             )}
                                             {isDowntime ? (
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">
-                                                    <Timer size={12} className="mr-1"/> Parada
+                                                    <Timer size={12} className="mr-1" /> Parada
                                                 </span>
                                             ) : (
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                                                    <Package size={12} className="mr-1"/> Produção
+                                                    <Package size={12} className="mr-1" /> Produção
                                                 </span>
                                             )}
                                         </td>
@@ -179,7 +181,7 @@ const DetailsModal: React.FC<DetailsModalProps> = ({ isOpen, onClose, group, pro
                         </tbody>
                     </table>
                 </div>
-                
+
                 <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-between items-center text-sm">
                     <div className="font-medium text-slate-500">Total de registros: {group.entries.length}</div>
                     <div className="flex gap-4 font-bold text-slate-700">
@@ -194,396 +196,462 @@ const DetailsModal: React.FC<DetailsModalProps> = ({ isOpen, onClose, group, pro
 
 
 const ProductionList: React.FC = () => {
-  const navigate = useNavigate();
-  
-  // Data Helpers
-  const today = new Date().toISOString().split('T')[0];
+    const navigate = useNavigate();
 
-  // Data States
-  const [entries, setEntries] = useState<ProductionEntry[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [operators, setOperators] = useState<Operator[]>([]);
-  const [downtimeTypes, setDowntimeTypes] = useState<DowntimeType[]>([]);
-  const [machines, setMachines] = useState<Machine[]>([]);
-  const [sectors, setSectors] = useState<Sector[]>([]);
-  
-  // Filter States
-  const [date, setDate] = useState(today);
-  const [selectedSector, setSelectedSector] = useState('');
-  const [selectedMachine, setSelectedMachine] = useState('');
-  const [selectedOperator, setSelectedOperator] = useState('');
+    // Data Helpers
+    const today = new Date().toISOString().split('T')[0];
 
-  // Grouping State
-  const [groupedEntries, setGroupedEntries] = useState<GroupedEntry[]>([]);
-  
-  // Modal States
-  const [detailsModalOpen, setDetailsModalOpen] = useState(false);
-  const [selectedGroup, setSelectedGroup] = useState<GroupedEntry | null>(null);
+    // Data States
+    const [entries, setEntries] = useState<ProductionEntry[]>([]);
+    const [products, setProducts] = useState<Product[]>([]);
+    const [operators, setOperators] = useState<Operator[]>([]);
+    const [downtimeTypes, setDowntimeTypes] = useState<DowntimeType[]>([]);
+    const [machines, setMachines] = useState<Machine[]>([]);
+    const [sectors, setSectors] = useState<Sector[]>([]);
 
-  // Filters & Loading
-  const [loading, setLoading] = useState(false);
-  
-  // Delete States
-  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [itemToDelete, setItemToDelete] = useState<any>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    // Filter States
+    const [date, setDate] = useState(today);
+    const [selectedSector, setSelectedSector] = useState('');
+    const [selectedMachine, setSelectedMachine] = useState('');
+    const [selectedOperator, setSelectedOperator] = useState('');
 
-  // Load Initial Data
-  useEffect(() => {
-    refreshAllData();
-  }, [date]);
+    // Grouping State
+    const [groupedEntries, setGroupedEntries] = useState<GroupedEntry[]>([]);
 
-  // Derived filtered machine list for dropdown
-  const availableMachines = useMemo(() => {
-      if (!selectedSector) return machines;
-      return machines.filter(m => m.sector === selectedSector);
-  }, [machines, selectedSector]);
+    // Modal States
+    const [detailsModalOpen, setDetailsModalOpen] = useState(false);
+    const [selectedGroup, setSelectedGroup] = useState<GroupedEntry | null>(null);
 
-  // Derived filtered operator list for dropdown
-  const availableOperators = useMemo(() => {
-      if (!selectedSector) return operators;
-      return operators.filter(o => !o.sector || o.sector === selectedSector);
-  }, [operators, selectedSector]);
+    // Filters & Loading
+    const [loading, setLoading] = useState(false);
 
-  // Grouping Logic (Memoized with Filters)
-  useMemo(() => {
-    const groups: Record<string, GroupedEntry> = {};
-    
-    // Apply filters first
-    const filteredEntries = entries.filter(entry => {
-        if (selectedMachine && entry.machineId !== selectedMachine) return false;
-        if (selectedOperator && entry.operatorId.toString() !== selectedOperator) return false;
-        
-        if (selectedSector) {
-             const m = machines.find(mac => mac.code === entry.machineId);
-             // If machine not found, keep it safe or hide? Hide for consistency.
-             if (!m || m.sector !== selectedSector) return false;
+    // Delete States
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [itemToDelete, setItemToDelete] = useState<any>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+    // Load Initial Data
+    useEffect(() => {
+        refreshAllData();
+    }, [date]);
+
+    // Derived filtered machine list for dropdown
+    const availableMachines = useMemo(() => {
+        if (!selectedSector) return machines;
+        return machines.filter(m => m.sector === selectedSector);
+    }, [machines, selectedSector]);
+
+    // Derived filtered operator list for dropdown
+    const availableOperators = useMemo(() => {
+        if (!selectedSector) return operators;
+        return operators.filter(o => !o.sector || o.sector === selectedSector);
+    }, [operators, selectedSector]);
+
+    // Grouping Logic (Memoized with Filters)
+    useMemo(() => {
+        const groups: Record<string, GroupedEntry> = {};
+
+        // Apply filters first
+        const filteredEntries = entries.filter(entry => {
+            if (selectedMachine && entry.machineId !== selectedMachine) return false;
+            if (selectedOperator && entry.operatorId.toString() !== selectedOperator) return false;
+
+            if (selectedSector) {
+                const m = machines.find(mac => mac.code === entry.machineId);
+                // If machine not found, keep it safe or hide? Hide for consistency.
+                if (!m || m.sector !== selectedSector) return false;
+            }
+            return true;
+        });
+
+        filteredEntries.forEach(entry => {
+            const key = `${entry.date}-${entry.machineId}-${entry.operatorId}`;
+            const isDraft = entry.metaData?.is_draft === true;
+
+            if (!groups[key]) {
+                groups[key] = {
+                    key,
+                    date: entry.date,
+                    machineId: entry.machineId || '',
+                    operatorId: entry.operatorId,
+                    totalProdMinutes: 0,
+                    totalStopMinutes: 0,
+                    totalOk: 0,
+                    totalDefect: 0,
+                    totalWeight: 0,
+                    totalReturn: 0,
+                    entries: [],
+                    hasDrafts: false
+                };
+            }
+
+            groups[key].entries.push(entry);
+            if (isDraft) groups[key].hasDrafts = true;
+
+            if (entry.downtimeMinutes > 0) {
+                groups[key].totalStopMinutes += entry.downtimeMinutes;
+            } else {
+                const duration = calculateDurationMinutes(entry.startTime, entry.endTime);
+                groups[key].totalProdMinutes += duration;
+                groups[key].totalOk += entry.qtyOK;
+                groups[key].totalDefect += entry.qtyDefect;
+                // Sum weight
+                const w = Number(entry.measuredWeight || entry.metaData?.measuredWeight || 0);
+                groups[key].totalWeight += w;
+
+                // Retorno Logic
+                const m = machines.find(mac => mac.code === entry.machineId);
+                const isExtrusion = m?.sector === 'Extrusão' || (entry.machineId && entry.machineId.startsWith('EXT'));
+
+                if (isExtrusion) {
+                    // Extrusion: Refile from Metadata
+                    groups[key].totalReturn += Number(entry.metaData?.extrusion?.refile || 0);
+                } else {
+                    // TF: Measured Weight (Bobina) - Theoretical
+                    const product = products.find(p => p.codigo === entry.productCode);
+                    if (product && product.pesoLiquido && w > 0) {
+                        const theoretical = entry.qtyOK * product.pesoLiquido;
+                        const diff = w - theoretical;
+                        if (diff > 0) groups[key].totalReturn += diff;
+                    } else {
+                        groups[key].totalReturn += entry.qtyDefect;
+                    }
+                }
+            }
+        });
+
+        setGroupedEntries(Object.values(groups).sort((a, b) => a.machineId.localeCompare(b.machineId)));
+    }, [entries, selectedMachine, selectedOperator, selectedSector, machines]);
+
+    const totals = useMemo(() => {
+        return groupedEntries.reduce((acc, g) => ({
+            prod: acc.prod + g.totalProdMinutes,
+            stop: acc.stop + g.totalStopMinutes,
+            weight: acc.weight + g.totalWeight,
+            return: acc.return + g.totalReturn,
+            ok: acc.ok + g.totalOk
+        }), { prod: 0, stop: 0, weight: 0, return: 0, ok: 0 });
+    }, [groupedEntries]);
+
+
+    const refreshAllData = async () => {
+        setLoading(true);
+        setErrorMessage(null);
+        try {
+            const [eData, pData, oData, dtData, mData, sData] = await Promise.all([
+                fetchEntriesByDate(date),
+                fetchProducts(),
+                fetchOperators(),
+                fetchDowntimeTypes(),
+                fetchMachines(),
+                fetchSectors()
+            ]);
+            setEntries(eData);
+            setProducts(pData);
+            setOperators(oData);
+            setDowntimeTypes(dtData);
+            setMachines(mData);
+            setSectors(sData);
+
+            // Refresh selected group if modal is open
+            if (selectedGroup) {
+                setDetailsModalOpen(false);
+                setSelectedGroup(null);
+            }
+
+        } catch (e) { console.error(e); }
+        finally { setLoading(false); }
+    };
+
+    const handleDeleteError = (e: any) => {
+        console.error(`Erro ao deletar:`, e);
+        setErrorMessage("Erro ao excluir apontamento: " + formatError(e));
+        setTimeout(() => setErrorMessage(null), 10000);
+    };
+
+    // --- Handlers ---
+
+    const handleEditEntry = (entry: ProductionEntry) => {
+        navigate('/entry', { state: { editEntry: entry } });
+    };
+
+    const handleViewDetails = (group: GroupedEntry) => {
+        setSelectedGroup(group);
+        setDetailsModalOpen(true);
+    };
+
+    const openDeleteModal = (item: any) => {
+        setItemToDelete(item);
+        setDeleteModalOpen(true);
+        setErrorMessage(null);
+    };
+
+    const confirmDelete = async () => {
+        if (!itemToDelete) return;
+        setIsDeleting(true);
+
+        try {
+            await deleteEntry(itemToDelete.id);
+            await refreshAllData();
+            setDeleteModalOpen(false);
+            setItemToDelete(null);
+        } catch (e: any) {
+            handleDeleteError(e);
+            setDeleteModalOpen(false);
+        } finally {
+            setIsDeleting(false);
         }
-        return true;
-    });
+    };
 
-    filteredEntries.forEach(entry => {
-        const key = `${entry.date}-${entry.machineId}-${entry.operatorId}`;
-        const isDraft = entry.metaData?.is_draft === true;
-
-        if (!groups[key]) {
-            groups[key] = {
-                key,
-                date: entry.date,
-                machineId: entry.machineId,
-                operatorId: entry.operatorId,
-                totalProdMinutes: 0,
-                totalStopMinutes: 0,
-                totalOk: 0,
-                totalDefect: 0,
-                entries: [],
-                hasDrafts: false
-            };
-        }
-        
-        groups[key].entries.push(entry);
-        if (isDraft) groups[key].hasDrafts = true;
-        
-        if (entry.downtimeMinutes > 0) {
-            groups[key].totalStopMinutes += entry.downtimeMinutes;
+    const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const newDate = e.target.value;
+        if (newDate > today) {
+            alert("Não é permitido selecionar datas futuras.");
+            setDate(today);
         } else {
-            const duration = calculateDurationMinutes(entry.startTime, entry.endTime);
-            groups[key].totalProdMinutes += duration;
-            groups[key].totalOk += entry.qtyOK;
-            groups[key].totalDefect += entry.qtyDefect;
+            setDate(newDate);
         }
-    });
+    };
 
-    setGroupedEntries(Object.values(groups).sort((a,b) => a.machineId.localeCompare(b.machineId)));
-  }, [entries, selectedMachine, selectedOperator, selectedSector, machines]);
+    const clearFilters = () => {
+        setSelectedSector('');
+        setSelectedMachine('');
+        setSelectedOperator('');
+    };
 
+    return (
+        <div className="space-y-6">
+            <DeleteConfirmationModal
+                isOpen={deleteModalOpen}
+                onClose={() => setDeleteModalOpen(false)}
+                onConfirm={confirmDelete}
+                isDeleting={isDeleting}
+                title="Confirmar Exclusão"
+                message="Tem certeza que deseja apagar este item?"
+            />
 
-  const refreshAllData = async () => {
-    setLoading(true);
-    setErrorMessage(null);
-    try {
-        const [eData, pData, oData, dtData, mData, sData] = await Promise.all([
-            fetchEntriesByDate(date),
-            fetchProducts(),
-            fetchOperators(),
-            fetchDowntimeTypes(),
-            fetchMachines(),
-            fetchSectors()
-        ]);
-        setEntries(eData);
-        setProducts(pData);
-        setOperators(oData);
-        setDowntimeTypes(dtData);
-        setMachines(mData);
-        setSectors(sData);
-        
-        // Refresh selected group if modal is open
-        if (selectedGroup) {
-             setDetailsModalOpen(false);
-             setSelectedGroup(null);
-        }
+            <DetailsModal
+                isOpen={detailsModalOpen}
+                onClose={() => setDetailsModalOpen(false)}
+                group={selectedGroup}
+                products={products}
+                downtimeTypes={downtimeTypes}
+                onEdit={(entry) => { setDetailsModalOpen(false); handleEditEntry(entry); }}
+                onDelete={(entry) => openDeleteModal(entry)}
+            />
 
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
-  };
-
-  const handleDeleteError = (e: any) => {
-    console.error(`Erro ao deletar:`, e);
-    setErrorMessage("Erro ao excluir apontamento: " + formatError(e));
-    setTimeout(() => setErrorMessage(null), 10000);
-  };
-
-  // --- Handlers ---
-  
-  const handleEditEntry = (entry: ProductionEntry) => {
-    navigate('/entry', { state: { editEntry: entry } });
-  };
-
-  const handleViewDetails = (group: GroupedEntry) => {
-      setSelectedGroup(group);
-      setDetailsModalOpen(true);
-  };
-
-  const openDeleteModal = (item: any) => {
-    setItemToDelete(item);
-    setDeleteModalOpen(true);
-    setErrorMessage(null);
-  };
-
-  const confirmDelete = async () => {
-    if (!itemToDelete) return;
-    setIsDeleting(true);
-    
-    try {
-        await deleteEntry(itemToDelete.id);
-        await refreshAllData();
-        setDeleteModalOpen(false);
-        setItemToDelete(null);
-    } catch (e: any) {
-        handleDeleteError(e);
-        setDeleteModalOpen(false);
-    } finally {
-        setIsDeleting(false);
-    }
-  };
-
-  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const newDate = e.target.value;
-      if (newDate > today) {
-          alert("Não é permitido selecionar datas futuras.");
-          setDate(today);
-      } else {
-          setDate(newDate);
-      }
-  };
-
-  const clearFilters = () => {
-      setSelectedSector('');
-      setSelectedMachine('');
-      setSelectedOperator('');
-  };
-
-  return (
-    <div className="space-y-6">
-      <DeleteConfirmationModal 
-        isOpen={deleteModalOpen} 
-        onClose={() => setDeleteModalOpen(false)} 
-        onConfirm={confirmDelete} 
-        isDeleting={isDeleting}
-        title="Confirmar Exclusão"
-        message="Tem certeza que deseja apagar este item?"
-      />
-
-      <DetailsModal 
-        isOpen={detailsModalOpen}
-        onClose={() => setDetailsModalOpen(false)}
-        group={selectedGroup}
-        products={products}
-        downtimeTypes={downtimeTypes}
-        onEdit={(entry) => { setDetailsModalOpen(false); handleEditEntry(entry); }}
-        onDelete={(entry) => openDeleteModal(entry)}
-      />
-
-      <div className="flex justify-between items-center">
-        <div>
-            <h2 className="text-2xl font-bold text-slate-800">Apontamentos de Produção</h2>
-            <p className="text-slate-500">Histórico diário e controle de registros.</p>
-        </div>
-        {loading && <Loader2 className="animate-spin text-brand-600" />}
-      </div>
-
-      {errorMessage && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-start animate-in fade-in slide-in-from-top-2">
-            <AlertCircle className="mr-2 flex-shrink-0 mt-0.5" size={18} />
-            <div>
-                <p className="font-bold">Erro na operação</p>
-                <p className="text-sm">{errorMessage}</p>
+            <div className="flex justify-between items-center">
+                <div>
+                    <h2 className="text-2xl font-bold text-slate-800">Apontamentos de Produção</h2>
+                    <p className="text-slate-500">Histórico diário e controle de registros.</p>
+                </div>
+                {loading && <Loader2 className="animate-spin text-brand-600" />}
             </div>
-            <button onClick={() => setErrorMessage(null)} className="ml-auto text-red-500 hover:text-red-700"><X size={18} /></button>
-        </div>
-      )}
 
-      {/* FILTER BAR */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col lg:flex-row gap-4 items-start lg:items-center">
-          
-          {/* Date Picker */}
-          <div className="flex flex-col space-y-1">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Data</span>
-                <div className="relative bg-slate-50 border border-slate-200 rounded-lg h-[40px] w-40 flex items-center overflow-hidden hover:border-brand-400 transition-colors">
-                    <input 
-                        type="date" 
-                        className="w-full h-full pl-3 pr-8 outline-none text-slate-800 font-bold border-none bg-transparent text-sm" 
-                        value={date} 
-                        onChange={handleDateChange} 
-                        max={today}
-                    />
-                    <div className="absolute right-2 text-brand-600 pointer-events-none">
-                        <Calendar size={16} />
+            {/* TOTALS SUMMARY */}
+
+
+            {errorMessage && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-start animate-in fade-in slide-in-from-top-2">
+                    <AlertCircle className="mr-2 flex-shrink-0 mt-0.5" size={18} />
+                    <div>
+                        <p className="font-bold">Erro na operação</p>
+                        <p className="text-sm">{errorMessage}</p>
+                    </div>
+                    <button onClick={() => setErrorMessage(null)} className="ml-auto text-red-500 hover:text-red-700"><X size={18} /></button>
+                </div>
+            )}
+
+            {/* FILTER BAR */}
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col lg:flex-row gap-4 items-start lg:items-center">
+
+                {/* Date Picker */}
+                <div className="flex flex-col space-y-1">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Data</span>
+                    <div className="relative bg-slate-50 border border-slate-200 rounded-lg h-[40px] w-40 flex items-center overflow-hidden hover:border-brand-400 transition-colors">
+                        <input
+                            type="date"
+                            className="w-full h-full pl-3 pr-8 outline-none text-slate-800 font-bold border-none bg-transparent text-sm"
+                            value={date}
+                            onChange={handleDateChange}
+                            max={today}
+                        />
+                        <div className="absolute right-2 text-brand-600 pointer-events-none">
+                            <Calendar size={16} />
+                        </div>
                     </div>
                 </div>
-          </div>
 
-          <div className="h-8 w-px bg-slate-200 hidden lg:block mx-2"></div>
+                <div className="h-8 w-px bg-slate-200 hidden lg:block mx-2"></div>
 
-          {/* Filters Row */}
-          <div className="flex flex-wrap gap-3 flex-1">
-                
-                {/* Sector Filter */}
-                <div className="flex flex-col space-y-1 w-full sm:w-auto">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Setor</span>
-                    <select 
-                        className="h-[40px] px-3 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 focus:ring-2 focus:ring-brand-500 outline-none"
-                        value={selectedSector}
-                        onChange={e => {
-                            setSelectedSector(e.target.value);
-                            setSelectedMachine(''); // Reset machine when sector changes
-                            setSelectedOperator(''); // Reset operator when sector changes
-                        }}
-                    >
-                        <option value="">Todos</option>
-                        {sectors.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                        {!sectors.length && (
-                            <>
-                                <option value="Extrusão">Extrusão</option>
-                                <option value="Termoformagem">Termoformagem</option>
-                            </>
-                        )}
-                    </select>
-                </div>
+                {/* Filters Row */}
+                <div className="flex flex-wrap gap-3 flex-1">
 
-                {/* Machine Filter */}
-                <div className="flex flex-col space-y-1 w-full sm:w-auto">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Máquina</span>
-                    <select 
-                        className="h-[40px] px-3 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 focus:ring-2 focus:ring-brand-500 outline-none min-w-[140px]"
-                        value={selectedMachine}
-                        onChange={e => setSelectedMachine(e.target.value)}
-                    >
-                        <option value="">Todas</option>
-                        {availableMachines.map(m => <option key={m.code} value={m.code}>{m.name}</option>)}
-                    </select>
-                </div>
-
-                {/* Operator Filter */}
-                <div className="flex flex-col space-y-1 w-full sm:w-auto">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Operador</span>
-                    <select 
-                        className="h-[40px] px-3 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 focus:ring-2 focus:ring-brand-500 outline-none min-w-[140px]"
-                        value={selectedOperator}
-                        onChange={e => setSelectedOperator(e.target.value)}
-                    >
-                        <option value="">Todos</option>
-                        {availableOperators.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                    </select>
-                </div>
-
-                {/* Clear Button */}
-                {(selectedSector || selectedMachine || selectedOperator) && (
-                    <div className="flex flex-col justify-end pb-[1px]">
-                        <button 
-                            onClick={clearFilters}
-                            className="h-[40px] px-3 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 flex items-center font-bold text-xs transition-colors"
-                            title="Limpar Filtros"
+                    {/* Sector Filter */}
+                    <div className="flex flex-col space-y-1 w-full sm:w-auto">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Setor</span>
+                        <select
+                            className="h-[40px] px-3 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 focus:ring-2 focus:ring-brand-500 outline-none"
+                            value={selectedSector}
+                            onChange={e => {
+                                setSelectedSector(e.target.value);
+                                setSelectedMachine(''); // Reset machine when sector changes
+                                setSelectedOperator(''); // Reset operator when sector changes
+                            }}
                         >
-                            <XCircle size={16} className="mr-1.5" /> Limpar
-                        </button>
+                            <option value="">Todos</option>
+                            {sectors.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                            {!sectors.length && (
+                                <>
+                                    <option value="Extrusão">Extrusão</option>
+                                    <option value="Termoformagem">Termoformagem</option>
+                                </>
+                            )}
+                        </select>
                     </div>
-                )}
-          </div>
-      </div>
 
-      <div className="overflow-x-auto relative min-h-[500px]">
-        <div className="border rounded-lg shadow-sm overflow-hidden">
-            <table className="w-full text-left text-sm bg-white">
-                <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                    <th className="px-6 py-3 font-semibold text-slate-700">Máquina</th>
-                    <th className="px-6 py-3 font-semibold text-slate-700">Operador</th>
-                    <th className="px-6 py-3 font-semibold text-slate-700">Tempo Prod.</th>
-                    <th className="px-6 py-3 font-semibold text-slate-700">Tempo Parado</th>
-                    <th className="px-6 py-3 font-semibold text-center">Produção</th>
-                    <th className="px-6 py-3 text-right font-semibold text-slate-700">Ações</th>
-                </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                {groupedEntries.length === 0 ? (
-                    <tr><td colSpan={6} className="p-12 text-center text-slate-400 bg-white">
-                        <Filter size={48} className="mx-auto mb-4 opacity-20" />
-                        Nenhum registro encontrado para os filtros selecionados.
-                    </td></tr>
-                ) : groupedEntries.map(g => (
-                    <tr key={g.key} className={`transition-colors ${g.hasDrafts ? 'bg-yellow-50 hover:bg-yellow-100' : 'hover:bg-slate-50'}`}>
-                        <td className="px-6 py-4">
-                            <div className="flex items-center">
-                                <Cpu size={16} className="mr-2 text-slate-400" />
-                                <span className="font-bold text-slate-800">{g.machineId}</span>
-                                {g.hasDrafts && (
-                                    <span className="ml-2 px-1.5 py-0.5 bg-yellow-200 text-yellow-800 text-[10px] font-bold rounded flex items-center" title="Contém rascunhos pendentes">
-                                        <Bookmark size={10} className="mr-1" />
-                                        Rascunho
-                                    </span>
-                                )}
-                            </div>
-                        </td>
-                        <td className="px-6 py-4">
-                            <div className="flex items-center">
-                                <Users size={16} className="mr-2 text-slate-400" />
-                                <span>{operators.find(o => o.id === g.operatorId)?.name || `ID ${g.operatorId}`}</span>
-                            </div>
-                        </td>
-                        <td className="px-6 py-4">
-                            <span className="font-mono text-green-700 bg-green-50 px-2 py-1 rounded">
-                                {formatMinutesToHours(g.totalProdMinutes)}
-                            </span>
-                        </td>
-                        <td className="px-6 py-4">
-                            <span className={`font-mono px-2 py-1 rounded ${g.totalStopMinutes > 0 ? 'text-orange-700 bg-orange-50' : 'text-slate-400'}`}>
-                                {g.totalStopMinutes > 0 ? formatMinutesToHours(g.totalStopMinutes) : '-'}
-                            </span>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                            <div className="flex flex-col items-center">
-                                <span className="font-bold text-slate-800">{g.totalOk} OK</span>
-                                {g.totalDefect > 0 && <span className="text-xs text-red-500 font-medium">{g.totalDefect} Refugo</span>}
-                            </div>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                            <button 
-                                onClick={() => handleViewDetails(g)}
-                                className="inline-flex items-center px-3 py-1.5 bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100 transition-colors text-xs font-bold uppercase tracking-wider"
+                    {/* Machine Filter */}
+                    <div className="flex flex-col space-y-1 w-full sm:w-auto">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Máquina</span>
+                        <select
+                            className="h-[40px] px-3 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 focus:ring-2 focus:ring-brand-500 outline-none min-w-[140px]"
+                            value={selectedMachine}
+                            onChange={e => setSelectedMachine(e.target.value)}
+                        >
+                            <option value="">Todas</option>
+                            {availableMachines.map(m => <option key={m.code} value={m.code}>{m.name}</option>)}
+                        </select>
+                    </div>
+
+                    {/* Operator Filter */}
+                    <div className="flex flex-col space-y-1 w-full sm:w-auto">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Operador</span>
+                        <select
+                            className="h-[40px] px-3 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 focus:ring-2 focus:ring-brand-500 outline-none min-w-[140px]"
+                            value={selectedOperator}
+                            onChange={e => setSelectedOperator(e.target.value)}
+                        >
+                            <option value="">Todos</option>
+                            {availableOperators.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                        </select>
+                    </div>
+
+                    {/* Clear Button */}
+                    {(selectedSector || selectedMachine || selectedOperator) && (
+                        <div className="flex flex-col justify-end pb-[1px]">
+                            <button
+                                onClick={clearFilters}
+                                className="h-[40px] px-3 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 flex items-center font-bold text-xs transition-colors"
+                                title="Limpar Filtros"
                             >
-                                <Eye size={14} className="mr-1" /> Detalhes
+                                <XCircle size={16} className="mr-1.5" /> Limpar
                             </button>
-                        </td>
-                    </tr>
-                ))}
-                </tbody>
-            </table>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="overflow-x-auto relative min-h-[500px]">
+                <div className="border rounded-lg shadow-sm overflow-hidden">
+                    <table className="w-full text-left text-sm bg-white">
+                        <thead className="bg-slate-50 border-b border-slate-200">
+                            <tr>
+                                <th className="px-6 py-3 font-semibold text-slate-700">Máquina</th>
+                                <th className="px-6 py-3 font-semibold text-slate-700">Operador</th>
+                                <th className="px-3 py-3 font-semibold text-slate-700">Tempo Prod.</th>
+                                <th className="px-3 py-3 font-semibold text-slate-700">Parada</th>
+
+                                <th className="px-6 py-3 font-semibold text-center">Peso (Kg)</th>
+                                <th className="px-6 py-3 font-semibold text-center">Retorno</th>
+                                <th className="px-6 py-3 font-semibold text-center">Produção</th>
+                                <th className="px-6 py-3 text-right font-semibold text-slate-700">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {groupedEntries.length === 0 ? (
+                                <tr><td colSpan={8} className="p-12 text-center text-slate-400 bg-white">
+                                    <Filter size={48} className="mx-auto mb-4 opacity-20" />
+                                    Nenhum registro encontrado para os filtros selecionados.
+                                </td></tr>
+                            ) : groupedEntries.map(g => (
+                                <tr key={g.key} className={`transition-colors ${g.hasDrafts ? 'bg-yellow-50 hover:bg-yellow-100' : 'hover:bg-slate-50'}`}>
+                                    <td className="px-6 py-4">
+                                        <div className="flex items-center">
+                                            <Cpu size={16} className="mr-2 text-slate-400" />
+                                            <span className="font-bold text-slate-800">{g.machineId}</span>
+                                            {g.hasDrafts && (
+                                                <span className="ml-2 px-1.5 py-0.5 bg-yellow-200 text-yellow-800 text-[10px] font-bold rounded flex items-center" title="Contém rascunhos pendentes">
+                                                    <Bookmark size={10} className="mr-1" />
+                                                    Rascunho
+                                                </span>
+                                            )}
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        <div className="flex items-center">
+                                            <Users size={16} className="mr-2 text-slate-400" />
+                                            <span>{operators.find(o => o.id === g.operatorId)?.name || `ID ${g.operatorId}`}</span>
+                                        </div>
+                                    </td>
+                                    <td className="px-3 py-4">
+                                        <span className="font-mono text-green-700 bg-green-50 px-2 py-1 rounded">
+                                            {formatMinutesToHours(g.totalProdMinutes)}
+                                        </span>
+                                    </td>
+                                    <td className="px-3 py-4">
+                                        <span className={`font-mono px-2 py-1 rounded ${g.totalStopMinutes > 0 ? 'text-orange-700 bg-orange-50' : 'text-slate-400'}`}>
+                                            {g.totalStopMinutes > 0 ? formatMinutesToHours(g.totalStopMinutes) : '-'}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 text-center">
+                                        <span className="font-bold text-slate-800">{g.totalWeight?.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 }) || '0'}</span>
+                                    </td>
+                                    <td className="px-6 py-4 text-center">
+                                        {g.totalReturn > 0 ? (
+                                            <span className="inline-flex items-center px-2 py-1 rounded bg-red-100 text-red-800 text-xs font-bold border border-red-200">
+                                                {g.totalReturn.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 })}
+                                            </span>
+                                        ) : g.totalDefect > 0 ? (
+                                            <span className="inline-flex items-center px-2 py-1 rounded bg-red-100 text-red-800 text-xs font-bold border border-red-200">
+                                                {g.totalDefect}
+                                            </span>
+                                        ) : (
+                                            <span className="text-slate-300">-</span>
+                                        )}
+                                    </td>
+                                    <td className="px-6 py-4 text-center">
+                                        <div className="flex flex-col items-center">
+                                            <span className="font-bold text-slate-800">{g.totalOk}</span>
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4 text-right">
+                                        <button
+                                            onClick={() => handleViewDetails(g)}
+                                            className="inline-flex items-center px-3 py-1.5 bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100 transition-colors text-xs font-bold uppercase tracking-wider"
+                                        >
+                                            <Eye size={14} className="mr-1" /> Detalhes
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                        <tfoot className="bg-slate-50 border-t-2 border-slate-200 font-bold text-slate-800 text-sm">
+                            <tr>
+                                <td colSpan={2} className="px-6 py-4 text-right text-slate-500 uppercase text-xs tracking-wider">Totalização:</td>
+                                <td className="px-3 py-4 font-mono text-green-700 bg-green-50/50">{formatMinutesToHours(totals.prod)}</td>
+                                <td className="px-3 py-4 font-mono text-orange-700 bg-orange-50/50">{formatMinutesToHours(totals.stop)}</td>
+                                <td className="px-6 py-4 text-center text-slate-800">{totals.weight.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 })}</td>
+                                <td className="px-6 py-4 text-center text-red-600">{totals.return.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 })}</td>
+                                <td className="px-6 py-4 text-center text-slate-800">{totals.ok}</td>
+                                <td className="px-6 py-4"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
         </div>
-      </div>
-    </div>
-  );
+    );
 };
 
 export default ProductionList;

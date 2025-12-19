@@ -76,6 +76,8 @@ export const ProductSelect: React.FC<ProductSelectProps> = ({ products, value, o
     }
   };
 
+  const skipFocusOpenRef = useRef(false);
+
   // Handle keys on the trigger div (when closed)
   const handleTriggerKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
@@ -93,8 +95,14 @@ export const ProductSelect: React.FC<ProductSelectProps> = ({ products, value, o
         tabIndex={0} // Make focusable
         className={`px-3 py-2 bg-white border rounded-lg cursor-pointer flex items-center justify-between transition-all outline-none focus:ring-2 focus:ring-brand-500 ${error ? 'border-red-500' : 'border-slate-300 hover:border-brand-400'
           } ${isOpen ? 'ring-2 ring-brand-500 border-brand-500' : ''}`}
-        onClick={() => setIsOpen(!isOpen)}
-        onFocus={() => setIsOpen(true)} // Auto open on focus (Tab/Enter from prev field)
+        onMouseDown={() => { skipFocusOpenRef.current = true; }}
+        onClick={() => {
+          setIsOpen(!isOpen);
+          skipFocusOpenRef.current = false;
+        }}
+        onFocus={() => {
+          if (!skipFocusOpenRef.current) setIsOpen(true);
+        }} // Auto open on focus (Tab/Enter from prev field) unless using mouse
         onKeyDown={handleTriggerKeyDown}
       >
         <span className={`block truncate ${!selectedProduct ? 'text-slate-400' : 'text-slate-900'}`}>

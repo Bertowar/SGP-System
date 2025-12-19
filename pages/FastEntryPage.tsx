@@ -39,6 +39,7 @@ interface LocalDowntimeEntry {
   endTime: string;
   reasonId: string;
   reasonName: string;
+  duration: number;
   timestamp: number;
 }
 
@@ -116,9 +117,10 @@ const FastEntryPage: React.FC = () => {
           endTime: e.endTime || '',
           reasonId: e.downtimeTypeId || '',
           reasonName: dt ? `${dt.id} - ${dt.description}` : 'Parada',
+          duration: e.downtimeMinutes || 0,
           timestamp: e.createdAt
         };
-      }));
+      }).sort((a, b) => a.startTime.localeCompare(b.startTime)));
     } catch (err) {
       console.error(err);
     } finally {
@@ -283,7 +285,7 @@ const FastEntryPage: React.FC = () => {
                   {prodEntries.map(e => (
                     <tr key={e.id} className="hover:bg-slate-50">
                       <td className="px-4 py-2 font-medium">{e.operatorName.split(' ')[0]}</td>
-                      <td className="px-4 py-2 text-xs">{e.productName}</td>
+                      <td className="px-4 py-2 text-xs" title={e.productName}>{e.productName.substring(0, 9)}</td>
                       <td className="px-4 py-2 text-right font-bold">{e.weight.toLocaleString('pt-BR')}kg</td>
                       <td className="px-4 py-2 text-right font-bold text-blue-600">{e.boxes}</td>
                       <td className="px-4 py-2 text-center">
@@ -307,15 +309,27 @@ const FastEntryPage: React.FC = () => {
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
               <table className="w-full text-sm text-left">
                 <thead className="bg-slate-50 text-slate-600 font-bold border-b">
-                  <tr><th className="px-4 py-2">Início</th><th className="px-4 py-2">Fim</th><th className="px-4 py-2">Motivo</th><th className="px-4 py-2 text-center">Ações</th></tr>
+                  <tr><th className="px-4 py-2 w-32">Horário</th><th className="px-4 py-2">Motivo</th><th className="px-4 py-2 text-center w-24">Ações</th></tr>
                 </thead>
                 <tbody className="divide-y">
                   {stopEntries.map(e => (
                     <tr key={e.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-2 font-mono">{e.startTime}</td>
-                      <td className="px-4 py-2 font-mono">{e.endTime}</td>
-                      <td className="px-4 py-2 text-xs">{e.reasonName}</td>
-                      <td className="px-4 py-2 text-center">
+                      <td className="px-4 py-2 align-middle">
+                        <div className="flex gap-1 items-center whitespace-nowrap">
+                          <span className="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[10px] font-mono border border-slate-200">{e.startTime}</span>
+                          <span className="text-slate-300 text-[10px]">&rarr;</span>
+                          <span className="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[10px] font-mono border border-slate-200">{e.endTime}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2 align-middle">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-slate-800">{e.reasonName}</span>
+                          <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full border border-red-100 flex items-center whitespace-nowrap">
+                            <Clock size={10} className="mr-1" /> {e.duration} min
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2 text-center align-top">
                         <button onClick={() => { setEditingId(e.id); setStopForm({ startTime: e.startTime, endTime: e.endTime, reasonId: e.reasonId }); setIsStopModalOpen(true); }} className="p-1 text-slate-400 hover:text-blue-600"><Edit size={16} /></button>
                         <button onClick={() => handleDeleteEntry(e.id)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
                       </td>
@@ -338,9 +352,9 @@ const FastEntryPage: React.FC = () => {
             <div className="p-4 border-b bg-slate-50 flex justify-between items-center"><h3 className="font-bold">{editingId ? 'Editar Produção' : 'Nova Produção'}</h3><button onClick={() => setIsProdModalOpen(false)}><X size={24} /></button></div>
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2"><label className="text-xs font-bold uppercase text-slate-500">Operador</label><select value={prodForm.operatorId} onChange={e => setProdForm({ ...prodForm, operatorId: e.target.value })} className="w-full p-2 border rounded-lg font-bold"><option value="">Selecione...</option>{operators.filter(op => !op.sector || op.sector === currentMachine?.sector).map(op => <option key={op.id} value={op.id}>{op.name}</option>)}</select></div>
+                <div className="col-span-2"><label className="text-xs font-bold uppercase text-slate-500">Operador</label><select value={prodForm.operatorId} onChange={e => setProdForm({ ...prodForm, operatorId: e.target.value })} className="w-full p-2 border rounded-lg font-bold"><option value="">Selecione...</option>{operators.filter(op => !op.sector || op.sector === currentMachine?.sector || op.id === Number(prodForm.operatorId)).map(op => <option key={op.id} value={op.id}>{op.name}</option>)}</select></div>
                 <div><Input label="Ciclagem" value={prodForm.cycleRate} onChange={e => setProdForm({ ...prodForm, cycleRate: e.target.value })} placeholder="0,0" /></div>
-                <div><ProductSelect products={products.filter(p => !p.compatibleMachines || p.compatibleMachines.includes(selectedMachine))} value={prodForm.productCode ? Number(prodForm.productCode) : null} onChange={v => setProdForm({ ...prodForm, productCode: v?.toString() || '' })} /></div>
+                <div><ProductSelect products={products.filter(p => !p.compatibleMachines || p.compatibleMachines.includes(selectedMachine))} fullList={products} value={prodForm.productCode ? Number(prodForm.productCode) : null} onChange={v => setProdForm({ ...prodForm, productCode: v?.toString() || '' })} /></div>
                 <div><Input ref={prodWeightRef} label="Peso (kg)" value={prodForm.weight} onChange={e => setProdForm({ ...prodForm, weight: e.target.value })} placeholder="0,00" /></div>
                 <div><Input label="Caixas (Qtd)" value={prodForm.boxes} onChange={e => setProdForm({ ...prodForm, boxes: e.target.value })} placeholder="0" /></div>
               </div>

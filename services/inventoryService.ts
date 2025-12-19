@@ -14,9 +14,9 @@ export const fetchMaterials = async (): Promise<RawMaterial[]> => {
             code: d.code,
             name: d.name,
             unit: d.unit,
-            currentStock: d.current_stock,
-            minStock: d.min_stock,
-            unitCost: d.unit_cost,
+            currentStock: d.current_stock || 0,
+            minStock: d.min_stock || 0,
+            unitCost: d.unit_cost || 0,
             category: d.category || 'raw_material',
             group: d.group_name || 'Diversos'
         }));
@@ -62,7 +62,7 @@ export const fetchBOM = async (productCode: number): Promise<ProductBOM[]> => {
         if (error) return [];
         return data.map((d: any) => ({
             id: d.id, productCode: d.product_code, materialId: d.material_id, quantityRequired: d.quantity_required,
-            material: d.material ? { id: d.material.id, code: d.material.code, name: d.material.name, unit: d.material.unit, currentStock: d.material.current_stock, minStock: d.material.min_stock, unitCost: d.material.unit_cost, category: d.material.category, group: d.material.group_name } : undefined
+            material: d.material ? { id: d.material.id, code: d.material.code, name: d.material.name, unit: d.material.unit, currentStock: d.material.current_stock || 0, minStock: d.material.min_stock || 0, unitCost: d.material.unit_cost || 0, category: d.material.category, group: d.material.group_name } : undefined
         }));
     } catch (e) { return []; }
 };
@@ -73,7 +73,7 @@ export const fetchAllBOMs = async (): Promise<ProductBOM[]> => {
         if (error) return [];
         return data.map((d: any) => ({
             id: d.id, productCode: d.product_code, materialId: d.material_id, quantityRequired: d.quantity_required,
-            material: d.material ? { id: d.material.id, code: d.material.code, name: d.material.name, unit: d.material.unit, currentStock: d.material.current_stock, minStock: d.material.min_stock, unitCost: d.material.unit_cost, category: d.material.category, group: d.material.group_name } : undefined
+            material: d.material ? { id: d.material.id, code: d.material.code, name: d.material.name, unit: d.material.unit, currentStock: d.material.current_stock || 0, minStock: d.material.min_stock || 0, unitCost: d.material.unit_cost || 0, category: d.material.category, group: d.material.group_name } : undefined
         }));
     } catch (e) { return []; }
 };
@@ -138,7 +138,7 @@ export const fetchInventoryTransactions = async (): Promise<InventoryTransaction
         const { data: matData } = await supabase.from('raw_materials').select('*').in('id', materialIds);
         return trxData.map((d: any) => {
             const material = (matData || []).find((m: any) => m.id === d.material_id);
-            return { id: d.id, materialId: d.material_id, type: d.type, quantity: d.quantity, notes: d.notes || '', relatedEntryId: d.related_entry_id, createdAt: d.created_at, material: material ? { id: material.id, code: material.code, name: material.name, unit: material.unit, currentStock: material.current_stock, minStock: material.min_stock, unitCost: material.unit_cost, category: material.category } : { name: 'Item Desconhecido' } as any };
+            return { id: d.id, materialId: d.material_id, type: d.type, quantity: d.quantity, notes: d.notes || '', relatedEntryId: d.related_entry_id, createdAt: d.created_at, material: material ? { id: material.id, code: material.code, name: material.name, unit: material.unit, currentStock: material.current_stock || 0, minStock: material.min_stock || 0, unitCost: material.unit_cost || 0, category: material.category } : { name: 'Item Desconhecido' } as any };
         });
     } catch (e) { return []; }
 };

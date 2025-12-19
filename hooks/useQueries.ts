@@ -1,9 +1,9 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { 
-    fetchProducts, fetchMachines, fetchOperators, fetchDowntimeTypes, fetchScrapReasons, 
+import {
+    fetchProducts, fetchMachines, fetchOperators, fetchDowntimeTypes, fetchScrapReasons,
     fetchFieldDefinitions, fetchMachineStatuses, fetchSettings, fetchSectors, fetchWorkShifts,
-    registerProductionEntry, fetchDashboardStats, fetchProductionOrders
+    registerProductionEntry, fetchDashboardStats, fetchProductionOrders, fetchEntriesByDate
 } from '../services/storage';
 import { ProductionEntry } from '../types';
 
@@ -26,30 +26,30 @@ export const KEYS = {
 
 // --- MASTER DATA HOOKS (Read-Heavy, Long Cache) ---
 
-export const useProducts = () => useQuery({ 
-    queryKey: KEYS.PRODUCTS, 
+export const useProducts = () => useQuery({
+    queryKey: KEYS.PRODUCTS,
     queryFn: fetchProducts,
     staleTime: 1000 * 60 * 10 // 10 mins
 });
 
-export const useMachines = () => useQuery({ 
-    queryKey: KEYS.MACHINES, 
-    queryFn: fetchMachines 
+export const useMachines = () => useQuery({
+    queryKey: KEYS.MACHINES,
+    queryFn: fetchMachines
 });
 
-export const useOperators = () => useQuery({ 
-    queryKey: KEYS.OPERATORS, 
-    queryFn: fetchOperators 
+export const useOperators = () => useQuery({
+    queryKey: KEYS.OPERATORS,
+    queryFn: fetchOperators
 });
 
-export const useDowntimeTypes = () => useQuery({ 
-    queryKey: KEYS.DOWNTIME_TYPES, 
-    queryFn: fetchDowntimeTypes 
+export const useDowntimeTypes = () => useQuery({
+    queryKey: KEYS.DOWNTIME_TYPES,
+    queryFn: fetchDowntimeTypes
 });
 
-export const useScrapReasons = () => useQuery({ 
-    queryKey: KEYS.SCRAP_REASONS, 
-    queryFn: fetchScrapReasons 
+export const useScrapReasons = () => useQuery({
+    queryKey: KEYS.SCRAP_REASONS,
+    queryFn: fetchScrapReasons
 });
 
 export const useSectors = () => useQuery({
@@ -89,6 +89,13 @@ export const useDashboardStats = (startDate: string, endDate: string) => useQuer
     queryKey: [KEYS.DASHBOARD, startDate, endDate],
     queryFn: () => fetchDashboardStats(startDate, endDate),
     staleTime: 1000 * 60, // 1 min cache for dashboards
+});
+
+export const useProductionEntriesByDate = (date: string) => useQuery({
+    queryKey: [KEYS.ENTRIES, date],
+    queryFn: () => date ? fetchEntriesByDate(date) : Promise.resolve([]),
+    enabled: !!date && date.length === 10, // Only fetch if valid date string
+    staleTime: 1000 * 30
 });
 
 // --- MUTATIONS (Write Operations) ---

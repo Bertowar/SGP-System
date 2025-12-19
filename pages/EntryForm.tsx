@@ -146,14 +146,23 @@ const EntryForm: React.FC = () => {
     // FILTRO DE PRODUTOS
     const filteredProducts = useMemo(() => {
         if (!machineId || !selectedMachine) return [];
-        return products.filter(p => {
+        const allFiltered = products.filter(p => {
             const allowedMachines = p.compatibleMachines || [];
             if (allowedMachines.length > 0) return allowedMachines.includes(machineId);
             if (selectedMachine.sector === 'Extrusão') return p.type === 'INTERMEDIATE';
             if (selectedMachine.sector === 'Termoformagem') return p.type === 'FINISHED';
             return true;
         });
-    }, [products, machineId, selectedMachine]);
+
+        // FORCE INCLUDE: If editing, ensure the original product is in the list even if compatibility rules fail
+        if (editEntry?.productCode) {
+            const current = products.find(p => p.codigo === editEntry.productCode);
+            if (current && !allFiltered.some(p => p.codigo === current.codigo)) {
+                return [current, ...allFiltered];
+            }
+        }
+        return allFiltered;
+    }, [products, machineId, selectedMachine, editEntry]);
 
     // FILTRO DE ORDENS DE PRODUÇÃO
     const availableOps = useMemo(() => {
@@ -715,7 +724,7 @@ const EntryForm: React.FC = () => {
                                             ) : (
                                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
                                                     <Input label="Qtd Aprovada (OK)" type="number" value={qtyOK} onChange={e => setQtyOK(e.target.value)} placeholder="0" className="font-bold text-2xl h-12 text-green-700" />
-                                                    <div className="flex flex-col space-y-1"><label className="text-sm font-semibold text-slate-700 flex items-center"><Scale size={14} className="mr-1.5 text-blue-500" />Peso Médio (g)</label><input type="number" step="0.001" value={measuredWeight} onChange={e => setMeasuredWeight(e.target.value)} placeholder="0.00" className="px-3 py-2 bg-white border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-2xl h-12 text-blue-700" /></div>
+                                                    <div className="flex flex-col space-y-1"><label className="text-sm font-semibold text-slate-700 flex items-center"><Scale size={14} className="mr-1.5 text-blue-500" />Peso Bobina (Kg)</label><input type="number" step="0.001" value={measuredWeight} onChange={e => setMeasuredWeight(e.target.value)} placeholder="0.00" className="px-3 py-2 bg-white border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-2xl h-12 text-blue-700" /></div>
                                                     <div className="md:col-span-1"><Input label="Qtd Refugo" type="number" value={qtyDefect} onChange={e => setQtyDefect(e.target.value)} placeholder="0" className="font-bold text-2xl h-12 text-red-600 border-red-200 focus:border-red-500" /></div>
                                                 </div>
                                             )}
