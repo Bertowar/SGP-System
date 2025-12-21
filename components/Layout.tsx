@@ -115,8 +115,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         <button
             onClick={() => handleModuleChange(id)}
             className={`w-full aspect-square flex flex-col items-center justify-center transition-all duration-200 group relative ${active
-                    ? 'bg-brand-900 text-white'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                ? 'bg-brand-900 text-white'
+                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
                 }`}
             title={label}
         >
@@ -221,8 +221,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                                 key={item.to}
                                 onClick={() => { navigate(item.to); setMobileMenuOpen(false); }}
                                 className={`w-full flex items-center justify-between px-4 py-3 rounded-lg transition-all duration-200 text-left group ${isActive
-                                        ? 'bg-brand-700 text-white shadow-lg ring-1 ring-brand-600'
-                                        : 'text-brand-100 hover:bg-brand-800 hover:text-white'
+                                    ? 'bg-brand-700 text-white shadow-lg ring-1 ring-brand-600'
+                                    : 'text-brand-100 hover:bg-brand-800 hover:text-white'
                                     }`}
                             >
                                 <div className="flex items-center space-x-3">
@@ -236,7 +236,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
                 {/* Footer Info */}
                 <div className="p-4 text-xs text-brand-300/50 text-center border-t border-brand-800/50">
-                    <p>PPlast ERP System</p>
+                    <p>SGP-System</p>
                     <p>&copy; 2024</p>
                 </div>
             </aside>
@@ -251,7 +251,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                         <button onClick={() => setMobileMenuOpen(true)} className="p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-lg">
                             <Menu size={24} />
                         </button>
-                        <span className="ml-3 font-bold text-slate-700">PPlast ERP</span>
+                        <span className="ml-3 font-bold text-slate-700">SGP-System</span>
                     </div>
 
                     {/* DEV MODE INDICATOR */}

@@ -5,8 +5,9 @@ import {
     fetchProducts, fetchOperators, fetchMachines, fetchDowntimeTypes, fetchMaterials, fetchScrapReasons, fetchProductCategories, fetchSectors, fetchWorkShifts,
     saveProduct, deleteProduct, saveMachine, deleteMachine, saveOperator, deleteOperator, saveDowntimeType, deleteDowntimeType, saveScrapReason, deleteScrapReason, saveProductCategory, deleteProductCategory, saveSector, deleteSector, saveWorkShift, deleteWorkShift, formatError
 } from '../services/storage';
+import { fetchBOM } from '../services/inventoryService'; // NEW: Import BOM service
 import { Product, Operator, Machine, DowntimeType, MachineSector, RawMaterial, ScrapReason, ProductCategory, Sector, WorkShift } from '../types';
-import { Trash2, Edit, Save, Package, Users, Cpu, Timer, AlertCircle, X, Plus, Loader2, AlertTriangle, Layers, Grid, Clock, CheckSquare } from 'lucide-react';
+import { Trash2, Edit, Save, Package, Users, Cpu, Timer, AlertCircle, X, Plus, Loader2, AlertTriangle, Layers, Grid, Clock, CheckSquare, RefreshCw } from 'lucide-react'; // Added RefreshCw
 import { Input } from '../components/Input';
 
 // --- Interfaces ---
@@ -178,6 +179,7 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
     const [materials, setMaterials] = useState<RawMaterial[]>([]);
     const [categories, setCategories] = useState<ProductCategory[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isCalculating, setIsCalculating] = useState(false); // NEW
 
     useEffect(() => {
         const loadDependencies = async () => {
@@ -188,6 +190,28 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
         };
         loadDependencies();
     }, []);
+
+    // NEW: Calculate Cost from BOM
+    const calculateCost = async (prodCode: number) => {
+        if (!prodCode) return;
+        setIsCalculating(true);
+        try {
+            const bom = await fetchBOM(prodCode);
+            if (bom && bom.length > 0) {
+                const total = bom.reduce((acc, item) => {
+                    const cost = item.material?.unitCost || 0;
+                    return acc + (item.quantityRequired * cost);
+                }, 0);
+                if (total > 0) {
+                    setCost(total.toFixed(4));
+                }
+            }
+        } catch (e) {
+            console.error("Erro ao calcular custo BOM", e);
+        } finally {
+            setIsCalculating(false);
+        }
+    };
 
     // Effect to handle both Edit (initialData present) and New (initialData undefined)
     useEffect(() => {
@@ -203,6 +227,9 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
             setScrapId(initialData.scrapMaterialId || '');
             // Force reset when switching items
             setCompMachines(initialData.compatibleMachines || []);
+
+            // Auto-Calculate Cost from BOM if editing
+            calculateCost(initialData.codigo);
         } else {
             // Force explicit reset on new item (clean state)
             setCode('');
@@ -266,7 +293,21 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
             <Input label="Produto" value={name} onChange={e => setName(e.target.value)} required className="md:col-span-3" />
             <Input label="Descrição" value={desc} onChange={e => setDesc(e.target.value)} className="md:col-span-4" />
             <Input label="Peso (g)" type="text" value={weight} onChange={e => setWeight(e.target.value)} placeholder="0.00" />
-            <Input label="Custo (R$)" type="text" value={cost} onChange={e => setCost(e.target.value)} placeholder="0.00" />
+
+            {/* Cost Input with BOM Refresh */}
+            <div className="relative">
+                <Input label="Custo (R$)" type="text" value={cost} onChange={e => setCost(e.target.value)} placeholder="0.00" />
+                {!!initialData && (
+                    <button
+                        type="button"
+                        onClick={() => calculateCost(Number(code))}
+                        className="absolute right-2 top-8 p-1 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded"
+                        title="Recalcular da Ficha Técnica"
+                    >
+                        <RefreshCw size={14} className={isCalculating ? 'animate-spin' : ''} />
+                    </button>
+                )}
+            </div>
 
             <div className="flex flex-col">
                 <label className="text-sm font-semibold text-slate-700">Categoria (PCP)</label>
@@ -338,8 +379,8 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                             type="button"
                             onClick={() => handleMachineToggle(m.code)}
                             className={`text-xs px-2 py-1 rounded border transition-colors ${compMachines.includes(m.code)
-                                    ? 'bg-brand-100 text-brand-700 border-brand-300 font-bold'
-                                    : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                                ? 'bg-brand-100 text-brand-700 border-brand-300 font-bold'
+                                : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
                                 }`}
                         >
                             {m.code}
@@ -567,11 +608,18 @@ const CategoryForm: React.FC<{ onSave: () => void; initialData?: ProductCategory
 
 const SectorForm: React.FC<{ onSave: () => void; initialData?: Sector }> = ({ onSave, initialData }) => {
     const [name, setName] = useState(initialData?.name || '');
-    useEffect(() => { if (initialData) setName(initialData.name); }, [initialData]);
+    const [isProductive, setIsProductive] = useState(initialData?.isProductive || false); // NEW
+
+    useEffect(() => {
+        if (initialData) {
+            setName(initialData.name);
+            setIsProductive(initialData.isProductive || false);
+        }
+    }, [initialData]);
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            await saveSector({ id: initialData?.id || '', name, active: true });
+            await saveSector({ id: initialData?.id || '', name, active: true, isProductive });
             onSave();
         } catch (e: any) {
             alert("Erro ao salvar setor: " + formatError(e));
@@ -581,6 +629,19 @@ const SectorForm: React.FC<{ onSave: () => void; initialData?: Sector }> = ({ on
         <form onSubmit={handleSubmit} className="flex gap-4 items-end">
             <div className="flex-1">
                 <Input label="Nome do Setor" value={name} onChange={e => setName(e.target.value)} required className="w-full" placeholder="Ex: Termoformagem" />
+            </div>
+            {/* NEW: Checkbox for Productive Sector */}
+            <div className="flex items-center h-10 px-3 border border-slate-200 rounded-lg bg-slate-50 mb-[2px]">
+                <input
+                    type="checkbox"
+                    id="is_prod"
+                    checked={isProductive}
+                    onChange={e => setIsProductive(e.target.checked)}
+                    className="w-4 h-4 text-green-600 rounded focus:ring-green-500"
+                />
+                <label htmlFor="is_prod" className="ml-2 text-sm font-bold text-slate-700 cursor-pointer whitespace-nowrap">
+                    Setor Produtivo
+                </label>
             </div>
             <button type="submit" className="mb-[2px] px-4 py-2 bg-green-600 text-white rounded-lg"><Save size={18} /></button>
         </form>
@@ -903,8 +964,8 @@ const EngineeringRegistrations: React.FC = () => {
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id as any)}
                         className={`px-4 py-3 text-sm font-medium flex items-center space-x-2 transition-all rounded-t-lg whitespace-nowrap ${activeTab === tab.id
-                                ? 'border border-b-0 border-slate-200 bg-white text-brand-600 shadow-sm translate-y-px'
-                                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                            ? 'border border-b-0 border-slate-200 bg-white text-brand-600 shadow-sm translate-y-px'
+                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
                             }`}
                     >
                         <tab.icon size={16} />
@@ -932,6 +993,12 @@ const EngineeringRegistrations: React.FC = () => {
                     data={sectors}
                     columns={[
                         { header: 'Nome', render: (s: Sector) => <span className="font-bold text-slate-800">{s.name}</span> },
+                        {
+                            header: 'Tipo',
+                            render: (s: Sector) => s.isProductive
+                                ? <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">Produtivo</span>
+                                : <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600">Apoio / Geral</span>
+                        }
                     ]}
                     onDelete={(s) => openDeleteModal(s, 'setor')}
                     FormComponent={SectorForm}

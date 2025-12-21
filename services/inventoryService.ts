@@ -175,17 +175,47 @@ export const processStockDeduction = async (entry: { productCode?: number | null
 
 export const processScrapGeneration = async (entry: ProductionEntry): Promise<void> => {
     if (!entry.productCode || !entry.machineId) return;
+
     const { data: product } = await supabase.from('products').select('*').eq('code', entry.productCode).single();
     const { data: machine } = await supabase.from('machines').select('sector').eq('code', entry.machineId).single();
+
     if (!product || !product.scrap_recycling_material_id || !machine) return;
-    let factor = machine.sector === 'Extrusão' ? 0.15 : machine.sector === 'Termoformagem' ? 0.35 : 0;
-    if (factor === 0) return;
-    const totalQty = (entry.qtyOK || 0) + (entry.qtyDefect || 0);
-    const unitWeight = entry.metaData?.measuredWeight || product.net_weight || 0;
-    const weightKg = machine.sector === 'Extrusão' ? totalQty : (totalQty * unitWeight) / 1000;
-    const scrapQty = weightKg * factor;
-    if (scrapQty <= 0) return;
-    await processStockTransaction({ materialId: product.scrap_recycling_material_id, type: 'IN', quantity: parseFloat(scrapQty.toFixed(3)), notes: `Retorno Auto (${(factor * 100).toFixed(0)}%) - Reg #${entry.id.substring(0, 8)}`, relatedEntryId: entry.id });
+
+    let scrapQty = 0;
+    let notes = '';
+
+    if (machine.sector === 'Extrusão') {
+        // EXTRUSÃO: Considera o Refile + Borra informado manualmente no metaData
+        const refile = Number(entry.metaData?.extrusion?.refile) || 0;
+        const borra = Number(entry.metaData?.extrusion?.borra) || 0;
+        scrapQty = refile + borra;
+        notes = `Retorno Extrusão (Refile: ${refile} + Borra: ${borra}) - Reg #${entry.id.substring(0, 8)}`;
+    } else if (machine.sector === 'Termoformagem') {
+        // TERMOFORMAGEM: Peso da Bobina (measuredWeight) - (Peso Teórico * Qtd Produzida)
+        // unitWeight vem do produto (peso líquido em gramas?)
+        const unitWeightKg = (product.net_weight || 0) / 1000; // Assume product.net_weight is in grams if it's typical for plastic parts, but wait, type says 'pesoLiquido'. Usually grams.
+        // Wait, user said "Peso da Ficha Técnica * Qtd Caixas".
+        // If product.unit is 'cx', net_weight might be per box or per unit.
+        // Assuming net_weight is per UNIT/PART, and qtyOK is units? Or Boxes?
+        // User said "qtd de caixas". If QtyOK is boxes, then net_weight should be weight per box.
+        // Let's assume standard logic: qtyOK * unitWeight.
+
+        const totalOutputWeight = (entry.qtyOK || 0) * unitWeightKg;
+        const coilWeight = Number(entry.metaData?.measuredWeight || entry.measuredWeight) || 0;
+
+        scrapQty = coilWeight - totalOutputWeight;
+        notes = `Retorno Termo (Bobina: ${coilWeight.toFixed(2)} - Teórico: ${totalOutputWeight.toFixed(2)}) - Reg #${entry.id.substring(0, 8)}`;
+    }
+
+    if (scrapQty <= 0) return; // Se apara negativa ou zero, não lança? Ou lança zero? Better not to spam DB.
+
+    await processStockTransaction({
+        materialId: product.scrap_recycling_material_id,
+        type: 'IN',
+        quantity: parseFloat(scrapQty.toFixed(3)),
+        notes: notes,
+        relatedEntryId: entry.id
+    });
 };
 
 // --- LOGISTICS ---

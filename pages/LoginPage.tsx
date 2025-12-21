@@ -50,9 +50,9 @@ const LoginPage: React.FC = () => {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-brand-800 mb-4 shadow-lg">
             <Box className="text-white" size={32} />
           </div>
-          <h1 className="text-2xl font-bold text-white tracking-wide">PPLAST ERP</h1>
+          <h1 className="text-2xl font-bold text-white tracking-wide">SGP-System</h1>
           <div className="mt-2 text-sm text-brand-200 opacity-90 font-mono border-none text-white">
-            v7.9.8
+            v8.0.0
           </div>
           <p className="text-brand-200 text-sm mt-1">Gestão de Produção e Custos</p>
         </div>
@@ -76,7 +76,7 @@ const LoginPage: React.FC = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 bg-white text-black border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all font-medium"
-                  placeholder="ex: admin@pplast.com"
+                  placeholder="ex: admin@sgp-system.com"
                   style={{ backgroundColor: 'white', color: 'black' }}
                 />
               </div>

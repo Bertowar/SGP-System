@@ -200,13 +200,23 @@ export const deleteProductCategory = async (id: string): Promise<void> => {
 export const fetchSectors = async (): Promise<Sector[]> => {
   try {
     const { data, error } = await supabase.from('sectors').select('*').eq('active', true).order('name');
-    if (error || !data || data.length === 0) return [{ id: 'Extrusão', name: 'Extrusão', active: true }, { id: 'Termoformagem', name: 'Termoformagem', active: true }];
-    return data as Sector[];
-  } catch (e) { return [{ id: 'Extrusão', name: 'Extrusão', active: true }, { id: 'Termoformagem', name: 'Termoformagem', active: true }]; }
+    if (error || !data || data.length === 0) return [{ id: 'Extrusão', name: 'Extrusão', active: true, isProductive: true }, { id: 'Termoformagem', name: 'Termoformagem', active: true, isProductive: true }];
+    return data.map((d: any) => ({
+      id: d.id,
+      name: d.name,
+      active: d.active,
+      isProductive: d.is_productive || false // NEW: Map from DB
+    }));
+  } catch (e) { return [{ id: 'Extrusão', name: 'Extrusão', active: true, isProductive: true }, { id: 'Termoformagem', name: 'Termoformagem', active: true, isProductive: true }]; }
 };
 
 export const saveSector = async (sector: Sector): Promise<void> => {
-  await supabase.from('sectors').upsert([{ id: sector.id || sector.name.toUpperCase(), name: sector.name, active: true }]);
+  await supabase.from('sectors').upsert([{
+    id: sector.id || sector.name.toUpperCase(),
+    name: sector.name,
+    active: true,
+    is_productive: sector.isProductive || false // NEW: Save to DB
+  }]);
 };
 
 export const deleteSector = async (id: string): Promise<void> => {

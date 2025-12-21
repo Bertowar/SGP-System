@@ -122,6 +122,7 @@ BEGIN
                 SUM(COALESCE(pe.measured_weight, 0)) as total_weight,
                 SUM(pe.qty_defect) as total_defect,
                 COUNT(pe.id) as entries_count,
+                SUM(
                     CASE 
                         WHEN pe.machine_id IN ('TF1', 'TF2', 'TF3') OR pe.machine_id ILIKE 'TF%' OR pe.machine_id ILIKE '%Termo%' THEN
                            GREATEST(0, SUM(COALESCE(pe.measured_weight, 0)) - SUM(pe.qty_ok * COALESCE(p.net_weight, 0)))
@@ -170,7 +171,6 @@ BEGIN
 END;
 $$;
 
--- Grant permissions
 GRANT EXECUTE ON FUNCTION get_dashboard_metrics(text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION get_dashboard_metrics(text, text) TO anon;
 GRANT EXECUTE ON FUNCTION get_dashboard_metrics(text, text) TO service_role;

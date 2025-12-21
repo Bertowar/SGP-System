@@ -4,7 +4,7 @@ import {
     PieChart, Pie, Cell, ComposedChart
 } from 'recharts';
 import { Package, AlertTriangle, TrendingUp, Clock, Loader2, Cpu, Users, Sun, Calendar, BarChart3, Timer, LayoutGrid, Disc, RefreshCcw } from 'lucide-react';
-import { useDashboardStats, useDowntimeTypes, useMachines, useProductionEntriesByDate } from '../hooks/useQueries';
+import { useDashboardStats, useDowntimeTypes, useMachines, useProductionEntriesByDate, useProducts } from '../hooks/useQueries';
 
 const COLORS = ['#0ea5e9', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6'];
 
@@ -49,6 +49,7 @@ const Dashboard: React.FC = () => {
     // Fetch Logic (React Query)
     const { data, isLoading: loading, error } = useDashboardStats(startDate, endDate);
     const { data: machines = [] } = useMachines();
+    const { data: products = [] } = useProducts();
     const { data: rawEntries = [] } = useProductionEntriesByDate(
         selectedDate && viewMode === 'day' ? selectedDate : ''
     );
@@ -78,28 +79,29 @@ const Dashboard: React.FC = () => {
                 const isExtrusion = sector === 'Extrusão';
 
                 if (isExtrusion) {
-                    // Production: Weight
+                    // Extrusion: Production = Weight, Return = Refile, Loss = Borra
                     const weight = Number(entry.measuredWeight || entry.metaData?.measuredWeight || 0);
-                    // Return: Metadata Refile
                     const metaRefile = Number(entry.metaData?.extrusion?.refile || 0);
-                    // Loss: Metadata Borra
                     const metaBorra = Number(entry.metaData?.extrusion?.borra || 0);
-                    // Legacy: Qty Defect
-                    const legacyDefect = Number(entry.qtyDefect || 0);
 
                     stats.extrusion.production += weight;
                     stats.extrusion.return += metaRefile;
-
-                    // Logic: If borra exists, use it. Else if no refile, maybe defect is loss?
-                    if (metaBorra > 0) {
-                        stats.extrusion.loss += metaBorra;
-                    } else if (metaRefile === 0 && legacyDefect > 0) {
-                        stats.extrusion.loss += legacyDefect;
-                    }
+                    stats.extrusion.loss += metaBorra;
                     stats.extrusion.entries += 1;
+
                 } else if (sector === 'Termoformagem') {
-                    // Thermoforming: OK = Production, Defect = Loss (mostly)
+                    // Thermoforming: Production = OK, Return = Weight - Theoretical, Loss = Defect
+                    const p = products.find((prod: any) => prod.codigo === entry.productCode);
+                    const unitWeightKg = (p?.pesoLiquido || 0) / 1000;
+
+                    const coilWeight = Number(entry.measuredWeight || entry.metaData?.measuredWeight || 0);
+                    const theoretical = (entry.qtyOK || 0) * unitWeightKg;
+
+                    const calculatedReturn = coilWeight - theoretical;
+                    const finalReturn = calculatedReturn > 0 ? calculatedReturn : 0;
+
                     stats.thermoforming.production += Number(entry.qtyOK || 0);
+                    stats.thermoforming.return += finalReturn;
                     stats.thermoforming.loss += Number(entry.qtyDefect || 0);
                     stats.thermoforming.entries += 1;
                 }

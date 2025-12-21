@@ -305,18 +305,13 @@ const ProductionList: React.FC = () => {
                 const isExtrusion = m?.sector === 'Extrusão' || (entry.machineId && entry.machineId.startsWith('EXT'));
 
                 if (isExtrusion) {
-                    // Extrusion: Refile from Metadata
-                    groups[key].totalReturn += Number(entry.metaData?.extrusion?.refile || 0);
+                    // Extrusion: Refile + Borra from Metadata
+                    const refile = Number(entry.metaData?.extrusion?.refile || 0);
+                    const borra = Number(entry.metaData?.extrusion?.borra || 0);
+                    groups[key].totalReturn += (refile + borra);
                 } else {
-                    // TF: Measured Weight (Bobina) - Theoretical
-                    const product = products.find(p => p.codigo === entry.productCode);
-                    if (product && product.pesoLiquido && w > 0) {
-                        const theoretical = entry.qtyOK * product.pesoLiquido;
-                        const diff = w - theoretical;
-                        if (diff > 0) groups[key].totalReturn += diff;
-                    } else {
-                        groups[key].totalReturn += entry.qtyDefect;
-                    }
+                    // TF: Use saved calculated value directly
+                    groups[key].totalReturn += entry.qtyDefect;
                 }
             }
         });

@@ -122,15 +122,24 @@ BEGIN
                 SUM(COALESCE(pe.measured_weight, 0)) as total_weight,
                 SUM(pe.qty_defect) as total_defect,
                 COUNT(pe.id) as entries_count,
-                    CASE 
-                        WHEN pe.machine_id IN ('TF1', 'TF2', 'TF3') OR pe.machine_id ILIKE 'TF%' OR pe.machine_id ILIKE '%Termo%' THEN
-                           GREATEST(0, SUM(COALESCE(pe.measured_weight, 0)) - SUM(pe.qty_ok * COALESCE(p.net_weight, 0)))
-                        WHEN pe.meta_data->'extrusion' IS NOT NULL THEN 
-                            SUM(COALESCE(NULLIF(pe.meta_data->'extrusion'->>'refile', '')::numeric, 0))
-                        ELSE 
-                            SUM(CASE WHEN sr.description ILIKE '%Refile%' OR sr.description ILIKE '%Aparas%' OR sr.description ILIKE '%Retorno%' THEN pe.qty_defect ELSE 0 END)
-                    END
-                ) as total_return,
+                
+                -- Corrigido: CASE externo para decidir a estratégia de agregação
+                CASE 
+                    WHEN pe.machine_id IN ('TF1', 'TF2', 'TF3') OR pe.machine_id ILIKE 'TF%' OR pe.machine_id ILIKE '%Termo%' THEN
+                        -- Lógica Termoformagem: (Peso Total - Peso Teórico Total)
+                        GREATEST(0, SUM(COALESCE(pe.measured_weight, 0)) - SUM(pe.qty_ok * COALESCE(p.net_weight, 0)))
+                    ELSE
+                        -- Lógica Padrão (Extrusão/Outros): Soma linha a linha
+                        SUM(
+                            CASE 
+                                WHEN pe.meta_data->'extrusion' IS NOT NULL THEN 
+                                    COALESCE(NULLIF(pe.meta_data->'extrusion'->>'refile', '')::numeric, 0)
+                                ELSE 
+                                    CASE WHEN sr.description ILIKE '%Refile%' OR sr.description ILIKE '%Aparas%' OR sr.description ILIKE '%Retorno%' THEN pe.qty_defect ELSE 0 END
+                            END
+                        )
+                END as total_return,
+                
                 SUM(
                     CASE 
                         WHEN pe.meta_data->'extrusion' IS NOT NULL THEN
@@ -170,7 +179,6 @@ BEGIN
 END;
 $$;
 
--- Grant permissions
 GRANT EXECUTE ON FUNCTION get_dashboard_metrics(text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION get_dashboard_metrics(text, text) TO anon;
 GRANT EXECUTE ON FUNCTION get_dashboard_metrics(text, text) TO service_role;

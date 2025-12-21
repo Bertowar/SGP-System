@@ -57,7 +57,7 @@ const EntryForm: React.FC = () => {
     const [operatorId, setOperatorId] = useState<number | ''>('');
     const [shift, setShift] = useState('');
 
-    const [productCode, setProductCode] = useState<number | null>(null);
+    const [productCode, setProductCode] = useState<number | string | null>(null);
     const [selectedOpId, setSelectedOpId] = useState(''); // NEW: Selected OP ID
 
     const [startTime, setStartTime] = useState('');
@@ -67,6 +67,7 @@ const EntryForm: React.FC = () => {
     const [qtyDefect, setQtyDefect] = useState(''); // Extrusão: Refile+Borra (Auto), TF: Qtd Refugo
     const [measuredWeight, setMeasuredWeight] = useState(''); // Extrusão: Peso Total (Kg)
     const [cycleRate, setCycleRate] = useState(''); // Ciclagem (Novo campo direto)
+
 
     const [scrapReasonId, setScrapReasonId] = useState('');
     const [downtimeTypeId, setDowntimeTypeId] = useState('');
@@ -99,7 +100,7 @@ const EntryForm: React.FC = () => {
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
     const selectedMachine = machines.find(m => m.code === machineId);
-    const isExtrusion = useMemo(() => selectedMachine?.sector === 'Extrusão', [selectedMachine]);
+    const isExtrusion = useMemo(() => selectedMachine?.sector && selectedMachine.sector.toLowerCase().includes('extru'), [selectedMachine]);
 
     // Determine if Operator is Optional based on Reason
     const isOperatorExempt = useMemo(() => {
@@ -156,7 +157,7 @@ const EntryForm: React.FC = () => {
 
         // FORCE INCLUDE: If editing, ensure the original product is in the list even if compatibility rules fail
         if (editEntry?.productCode) {
-            const current = products.find(p => p.codigo === editEntry.productCode);
+            const current = products.find(p => Number(p.codigo) === Number(editEntry.productCode));
             if (current && !allFiltered.some(p => p.codigo === current.codigo)) {
                 return [current, ...allFiltered];
             }
@@ -189,7 +190,7 @@ const EntryForm: React.FC = () => {
                 const mappedMix = (op.metaData.extrusion_mix as any[]).map(item => ({
                     type: item.type,
                     subType: item.subType,
-                    qty: '',
+                    qty: (item.qty || '').toString(),
                     targetPct: item.qty
                 }));
                 setMixItems(mappedMix);
@@ -209,7 +210,7 @@ const EntryForm: React.FC = () => {
 
     useEffect(() => {
         if (productCode && machineId) {
-            const isValid = filteredProducts.some(p => p.codigo === productCode);
+            const isValid = filteredProducts.some(p => p.codigo.toString() === productCode.toString());
             if (!isValid && !selectedOpId) setProductCode(null);
         }
     }, [machineId, filteredProducts, productCode, selectedOpId]);
@@ -225,6 +226,27 @@ const EntryForm: React.FC = () => {
 
     const [historyEntries, setHistoryEntries] = useState<ProductionEntry[]>([]);
     const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+
+    // Auto-Calculate Scrap for TF
+    useEffect(() => {
+        if (!isExtrusion && productCode) {
+            const prod = products.find(p => p.codigo.toString() === productCode.toString());
+            if (prod) {
+                const coilWeight = safeParseFloat(measuredWeight);
+                const quantity = safeParseFloat(qtyOK);
+
+                // Priority: Technical Spec (Kg)
+                const techWeight = Number(prod.pesoLiquido) || 0;
+                const unitWeightKg = techWeight;
+
+                if (coilWeight > 0 && quantity > 0 && unitWeightKg > 0) {
+                    const totalProductWeight = quantity * unitWeightKg;
+                    const calculatedScrap = coilWeight - totalProductWeight;
+                    setQtyDefect(Math.max(0, calculatedScrap).toFixed(3));
+                }
+            }
+        }
+    }, [isExtrusion, measuredWeight, qtyOK, productCode, products]);
 
     // Initialize (Edit Mode)
     useEffect(() => {
@@ -261,9 +283,9 @@ const EntryForm: React.FC = () => {
     const populateForm = (entry: ProductionEntry) => {
         setDate(entry.date);
         setMachineId(entry.machineId);
-        setOperatorId(entry.operatorId);
+        setOperatorId(Number(entry.operatorId));
         setShift(entry.shift || '');
-        setProductCode(entry.productCode || null);
+        setProductCode(entry.productCode ?? null);
         setSelectedOpId(entry.productionOrderId || '');
         setStartTime(entry.startTime || '');
         setEndTime(entry.endTime || '');
@@ -299,6 +321,7 @@ const EntryForm: React.FC = () => {
             if (ext.refile) setRefileQty(ext.refile.toString());
             if (ext.borra) setBorraQty(ext.borra.toString());
         }
+
         setCustomValues(entry.metaData || {});
     };
     // Reset Logic
@@ -322,6 +345,7 @@ const EntryForm: React.FC = () => {
             setShift('');
             setRefileQty('');
             setBorraQty('');
+
             setAdditives({ pigmentBlack: '', pigmentWhite: '', alvejante: '', clarificante: '' });
             setMixItems([
                 { type: 'FLAKE', subType: 'CRISTAL', qty: '', targetPct: '' },
@@ -336,7 +360,7 @@ const EntryForm: React.FC = () => {
         const newShiftName = e.target.value;
         setShift(newShiftName);
         const targetShift = availableShifts.find(s => s.name === newShiftName);
-        if (targetShift && !startTime && !endTime) {
+        if (targetShift) {
             setStartTime(targetShift.startTime);
             setEndTime(targetShift.endTime);
         }
@@ -593,39 +617,38 @@ const EntryForm: React.FC = () => {
                                         {/* LINHA UNI-LINE: OP + DATA + TURNO + TEMPOS */}
                                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
                                             {/* OP ou Espaço Vazio se não houver OP */}
-                                            {!isDowntime && availableOps.length > 0 ? (
+                                            {/* OP ou Espaço Vazio se não houver OP */}
+                                            {!isDowntime && availableOps.length > 0 && (
                                                 <div className="lg:col-span-4">
                                                     <label className="text-[10px] uppercase font-bold text-blue-800 mb-1 flex items-center"><ClipboardList size={12} className="mr-1" /> Ordem de Produção</label>
-                                                    <select className="w-full px-2 py-2 border border-blue-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-400 font-bold text-slate-700 h-[38px]" value={selectedOpId} onChange={e => handleOpChange(e.target.value)}>
+                                                    <select className="w-full px-2 py-2 border border-blue-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-blue-400 font-bold text-slate-700 h-9" value={selectedOpId} onChange={e => handleOpChange(e.target.value)}>
                                                         <option value="">- Avulso -</option>{availableOps.map(op => <option key={op.id} value={op.id}>{op.id} - {op.product?.produto.substring(0, 15)}...</option>)}
                                                     </select>
                                                 </div>
-                                            ) : (
-                                                <div className="hidden lg:block lg:col-span-4"></div> /* Spacer to keep alignment if desired, or let others grow */
                                             )}
 
                                             {/* Data */}
                                             <div className={`${!isDowntime && availableOps.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
                                                 <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Data</label>
-                                                <input type="date" className="w-full px-2 py-2 border rounded-lg h-[38px] font-bold text-slate-800 text-sm" value={date} onChange={e => setDate(e.target.value)} max={today} required />
+                                                <input type="date" className="w-full px-2 py-2 border rounded-lg h-9 font-bold text-slate-800 text-xs" value={date} onChange={e => setDate(e.target.value)} max={today} required />
                                             </div>
 
                                             {/* Turno */}
                                             <div className={`${!isDowntime && availableOps.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
                                                 <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Turno *</label>
-                                                <select className="w-full px-2 py-2 border rounded-lg h-[38px] bg-white text-sm font-bold" value={shift} onChange={handleShiftChange} required disabled={!machineId}><option value="">Selecione...</option>{availableShifts.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}</select>
+                                                <select className="w-full px-2 py-2 border rounded-lg h-9 bg-white text-xs font-bold" value={shift} onChange={handleShiftChange} required disabled={!machineId}><option value="">Selecione...</option>{availableShifts.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}</select>
                                             </div>
 
                                             {/* Início */}
                                             <div className={`${!isDowntime && availableOps.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
                                                 <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Início</label>
-                                                <input type="time" className="w-full px-2 py-2 border rounded-lg h-[38px] font-bold text-slate-800 text-sm" value={startTime} onChange={e => setStartTime(e.target.value)} required />
+                                                <input type="time" className="w-full px-2 py-2 border rounded-lg h-9 font-bold text-slate-800 text-xs" value={startTime} onChange={e => setStartTime(e.target.value)} required />
                                             </div>
 
                                             {/* Fim */}
                                             <div className={`${!isDowntime && availableOps.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
                                                 <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Fim</label>
-                                                <input type="time" className="w-full px-2 py-2 border rounded-lg h-[38px] font-bold text-slate-800 text-sm" value={endTime} onChange={e => setEndTime(e.target.value)} required />
+                                                <input type="time" className="w-full px-2 py-2 border rounded-lg h-9 font-bold text-slate-800 text-xs" value={endTime} onChange={e => setEndTime(e.target.value)} required />
                                             </div>
                                         </div>
 
@@ -691,11 +714,11 @@ const EntryForm: React.FC = () => {
                                                                 <div className="grid grid-cols-2 gap-3 h-full">
                                                                     <div>
                                                                         <label className="text-[10px] uppercase font-bold text-red-700/70 mb-1 block">Refile (Kg)</label>
-                                                                        <input type="number" step="0.001" value={refileQty} onChange={e => setRefileQty(e.target.value)} placeholder="0.00" className="w-full px-3 py-2 bg-white border border-red-200 rounded-lg focus:ring-2 focus:ring-red-100 focus:border-red-400 outline-none font-bold text-sm text-red-700 placeholder-red-200/50 h-[38px]" />
+                                                                        <input type="number" step="0.001" value={refileQty} onChange={e => setRefileQty(e.target.value)} onFocus={(e) => e.target.select()} placeholder="0.00" className="w-full px-3 py-2 bg-white border border-red-200 rounded-lg focus:ring-2 focus:ring-red-100 focus:border-red-400 outline-none font-bold text-sm text-red-700 placeholder-red-200/50 h-[38px]" />
                                                                     </div>
                                                                     <div>
                                                                         <label className="text-[10px] uppercase font-bold text-red-700/70 mb-1 block">Borra (Kg)</label>
-                                                                        <input type="number" step="0.001" value={borraQty} onChange={e => setBorraQty(e.target.value)} placeholder="0.00" className="w-full px-3 py-2 bg-white border border-red-200 rounded-lg focus:ring-2 focus:ring-red-100 focus:border-red-400 outline-none font-bold text-sm text-red-700 placeholder-red-200/50 h-[38px]" />
+                                                                        <input type="number" step="0.001" value={borraQty} onChange={e => setBorraQty(e.target.value)} onFocus={(e) => e.target.select()} placeholder="0.00" className="w-full px-3 py-2 bg-white border border-red-200 rounded-lg focus:ring-2 focus:ring-red-100 focus:border-red-400 outline-none font-bold text-sm text-red-700 placeholder-red-200/50 h-[38px]" />
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -722,16 +745,64 @@ const EntryForm: React.FC = () => {
                                                     </div>
                                                 </div>
                                             ) : (
-                                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
-                                                    <Input label="Qtd Aprovada (OK)" type="number" value={qtyOK} onChange={e => setQtyOK(e.target.value)} placeholder="0" className="font-bold text-2xl h-12 text-green-700" />
-                                                    <div className="flex flex-col space-y-1"><label className="text-sm font-semibold text-slate-700 flex items-center"><Scale size={14} className="mr-1.5 text-blue-500" />Peso Bobina (Kg)</label><input type="number" step="0.001" value={measuredWeight} onChange={e => setMeasuredWeight(e.target.value)} placeholder="0.00" className="px-3 py-2 bg-white border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-2xl h-12 text-blue-700" /></div>
-                                                    <div className="md:col-span-1"><Input label="Qtd Refugo" type="number" value={qtyDefect} onChange={e => setQtyDefect(e.target.value)} placeholder="0" className="font-bold text-2xl h-12 text-red-600 border-red-200 focus:border-red-500" /></div>
+                                                <div className="bg-slate-50 rounded-xl border border-slate-100 p-5">
+                                                    <div className="flex items-center gap-2 mb-4 text-slate-700 border-b border-slate-200 pb-2">
+                                                        <Package size={18} className="text-slate-600" />
+                                                        <h3 className="font-bold">Dados de Produção</h3>
+                                                    </div>
+                                                    <div className="flex flex-col gap-4">
+                                                        {/* Grupo Principal: Ciclo, Peso Bobina, Qtd Caixa */}
+                                                        <div className="grid grid-cols-3 gap-4 p-4 bg-blue-50/50 rounded-xl border border-blue-100">
+                                                            <Input
+                                                                label="Ciclo (s)"
+                                                                type="number"
+                                                                step="0.1"
+                                                                value={cycleRate}
+                                                                onChange={e => setCycleRate(e.target.value)}
+                                                                placeholder="0.0"
+                                                                className="font-bold text-xl h-11 text-blue-700 border-blue-200 focus:border-blue-500"
+                                                            />
+                                                            <div className="flex flex-col space-y-1">
+                                                                <label className="text-xs font-bold text-slate-500 uppercase flex items-center">
+                                                                    <Scale size={14} className="mr-1 text-blue-500" />
+                                                                    Peso Bobina (Kg)
+                                                                </label>
+                                                                <input
+                                                                    type="number"
+                                                                    step="0.001"
+                                                                    value={measuredWeight}
+                                                                    onChange={e => setMeasuredWeight(e.target.value)}
+                                                                    placeholder="0.00"
+                                                                    className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-xl h-11 text-blue-700"
+                                                                />
+                                                            </div>
+                                                            <Input
+                                                                label="Qtd Caixas (OK)"
+                                                                type="number"
+                                                                value={qtyOK}
+                                                                onChange={e => setQtyOK(e.target.value)}
+                                                                placeholder="0"
+                                                                className="font-bold text-xl h-11 text-green-700 border-green-200 focus:border-green-500"
+                                                            />
+                                                        </div>
+
+                                                        {/* Campos Secundários / Opcionais */}
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            <div className="flex flex-col space-y-1">
+                                                                <label className="text-xs font-bold text-slate-500 uppercase flex items-center">
+                                                                    <Trash2 size={14} className="mr-1 text-red-500" />
+                                                                    Refugo (Calculado)
+                                                                </label>
+                                                                <div className="w-full px-3 py-2 bg-red-50 border border-red-100 rounded-lg font-bold text-xl h-11 text-red-600 flex items-center cursor-not-allowed" title="Calculado automaticamente">
+                                                                    {qtyDefect || '0.000'} <span className="text-xs text-red-400 ml-1">Kg</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             )}
 
-                                            {Number(qtyDefect) > 0 && !isExtrusion && (
-                                                <div className="bg-red-50 p-4 rounded-lg border border-red-100"><label className="text-sm font-bold text-red-700 mb-2 flex items-center"><AlertTriangle size={16} className="mr-2" /> Motivo do Refugo *</label><select className="w-full px-3 py-3 border border-red-200 rounded-lg bg-white text-red-700" value={scrapReasonId} onChange={e => setScrapReasonId(e.target.value)} required><option value="">Selecione o defeito...</option>{scrapReasons.map(r => <option key={r.id} value={r.id}>{r.description}</option>)}</select></div>
-                                            )}
+
                                         </div>
                                     ) : (
                                         <div className="space-y-6 animate-in fade-in"><div className="bg-orange-50 p-6 rounded-xl border border-orange-100 space-y-4"><h4 className="text-orange-800 font-bold text-sm uppercase tracking-wide flex items-center mb-2"><Timer size={16} className="mr-2" /> Detalhes do Tempo</h4><div className="grid grid-cols-2 gap-4"><Input label="Início da Parada" type="time" value={startTime} onChange={e => setStartTime(e.target.value)} required /><Input label="Término da Parada" type="time" value={endTime} onChange={e => setEndTime(e.target.value)} required /></div><div className="text-right pt-2 border-t border-orange-200/50 mt-2"><span className="text-xl font-mono text-slate-700 bg-white px-3 py-1 rounded border border-orange-200">{calculateDuration()} min</span></div></div></div>

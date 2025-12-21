@@ -1,0 +1,2 @@
+pages/EngineeringRegistrations.tsx(628,10): error TS1472: 'catch' or 'finally' expected.
+pages/EngineeringRegistrations.tsx(1138,45): error TS1005: '}' expected.

@@ -5,8 +5,8 @@ import { Search, X } from 'lucide-react';
 
 interface ProductSelectProps {
   products: Product[];
-  value: number | null;
-  onChange: (value: number | null) => void;
+  value: number | string | null;
+  onChange: (value: number | string | null) => void;
   error?: string;
   inputRef?: React.RefObject<any>; // Changed to any to accept Div ref
   onNext?: () => void;
@@ -25,7 +25,7 @@ export const ProductSelect: React.FC<ProductSelectProps> = ({ products, value, o
 
   // Busca na lista completa se disponível, senão na lista filtrada (fallback)
   const sourceList = fullList || products;
-  const selectedProduct = sourceList.find(p => p.codigo === value);
+  const selectedProduct = sourceList.find(p => p.codigo.toString() === value?.toString());
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -145,7 +145,7 @@ export const ProductSelect: React.FC<ProductSelectProps> = ({ products, value, o
               filteredProducts.map((product) => (
                 <div
                   key={product.codigo}
-                  className={`p-3 text-sm cursor-pointer hover:bg-brand-50 transition-colors border-b border-slate-50 last:border-0 ${value === product.codigo ? 'bg-brand-50 text-brand-700 font-medium' : 'text-slate-700'
+                  className={`p-3 text-sm cursor-pointer hover:bg-brand-50 transition-colors border-b border-slate-50 last:border-0 ${value?.toString() === product.codigo.toString() ? 'bg-brand-50 text-brand-700 font-medium' : 'text-slate-700'
                     }`}
                   onClick={() => handleSelect(product)}
                 >

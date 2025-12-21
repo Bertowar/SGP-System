@@ -35,7 +35,7 @@ const ForgotPasswordPage: React.FC = () => {
                         <Box className="text-white" size={24} />
                     </div>
                     <h1 className="text-xl font-bold text-white tracking-wide">Recuperação de Senha</h1>
-                    <p className="text-brand-200 text-xs mt-1">PPLAST ERP</p>
+                    <p className="text-brand-200 text-xs mt-1">SGP-System</p>
                 </div>
 
                 <div className="p-8">
