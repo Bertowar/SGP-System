@@ -12,6 +12,7 @@ interface AuthContextType {
   isAdmin: boolean;
   manualLogin: (email: string, pass: string) => Promise<void>;
   logout: () => Promise<void>;
+  debugSetRole: (role: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -21,6 +22,7 @@ const AuthContext = createContext<AuthContextType>({
   isAdmin: false,
   manualLogin: async () => { },
   logout: async () => { },
+  debugSetRole: () => { },
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -29,6 +31,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   // --- MODO DESENVOLVIMENTO (Auth Bypass) ---
+  /*
   useEffect(() => {
     console.warn("⚠️ MODO DEV ATIVO: Login automático como Admin.");
 
@@ -36,7 +39,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       id: 'dev-admin-id',
       email: 'dev@admin.com',
       role: 'admin',
-      fullName: 'Desenvolvedor (Admin)'
+      fullName: 'Desenvolvedor (Admin)',
+      organizationId: 'org-dev-001', // Mock Org
+      avatarUrl: 'https://ui-avatars.com/api/?name=Admin+Dev',
+      isSuperAdmin: true // Enable Super Admin for Dev Mode checking
     };
 
     // Simula delay para não quebrar UI que depende de loading state transitions
@@ -50,18 +56,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
     }, 100);
   }, []);
+  */
 
-  /* 
-  // AUTENTICAÇÃO REAL (Desativada temporariamente para Dev)
+  // AUTENTICAÇÃO REAL
   useEffect(() => {
     let isMounted = true;
     const init = async () => {
       try {
+        console.log("AuthContext: Checking session...");
         const { data: { session } } = await supabase.auth.getSession();
+        console.log("AuthContext: Session found?", !!session);
+
         if (isMounted) {
           setSession(session);
           if (session?.user) {
+            console.log("AuthContext: Fetching profile for", session.user.email);
             const profile = await getUserProfile(session.user.id);
+            console.log("AuthContext: Profile result:", profile);
             if (isMounted) setUser(profile);
           }
         }
@@ -95,7 +106,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       subscription.unsubscribe();
     };
   }, []);
-  */
 
   const manualLogin = async (email: string, pass: string) => {
     await supabaseSignIn(email, pass);
@@ -107,13 +117,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await supabaseSignOut();
   };
 
+  const debugSetRole = (role: string) => {
+    if (user) {
+      setUser({ ...user, role: role as any });
+      console.log(`[DEBUG] Role switched to: ${role}`);
+    }
+  };
+
   const value = {
     user,
     session,
     loading,
     isAdmin: user?.role === 'admin' || user?.role === 'manager', // Backwards compatibility helper
     manualLogin,
-    logout
+    logout,
+    debugSetRole
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

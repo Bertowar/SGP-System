@@ -211,13 +211,25 @@ export interface WorkShift {
 
 // --- Auth Types ---
 
-export type UserRole = 'admin' | 'manager' | 'supervisor' | 'operator';
+export type UserRole = 'owner' | 'admin' | 'manager' | 'supervisor' | 'operator' | 'seller';
 
 export interface UserProfile {
   id: string;
   email: string;
   role: UserRole;
   fullName?: string;
+  organizationId?: string; // FK
+  avatarUrl?: string;
+  isSuperAdmin?: boolean;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  cnpj?: string;
+  plan: 'free' | 'pro' | 'enterprise';
+  ownerId: string;
 }
 
 // --- ERP NEW MODULES ---

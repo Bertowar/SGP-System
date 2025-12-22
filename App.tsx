@@ -25,6 +25,12 @@ import { Loader2 } from 'lucide-react';
 
 import { GlobalErrorBoundary } from './components/GlobalErrorBoundary';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import { OrganizationSettings } from './pages/OrganizationSettings';
+
+
+// ... existing imports
+
+import { SuperAdminPage } from './pages/SuperAdminPage';
 
 const ProtectedRoute = ({ children, allowedRoles }: { children?: React.ReactNode, allowedRoles?: string[] }) => {
   const { user, loading } = useAuth();
@@ -61,9 +67,10 @@ const PublicOnlyRoute = ({ children }: { children?: React.ReactNode }) => {
 };
 
 // ROLE CONSTANTS
-const ALL_MANAGEMENT = ['admin', 'manager', 'supervisor'];
-const FULL_ACCESS = ['admin', 'manager', 'supervisor', 'operator'];
-const ADMIN_ONLY = ['admin', 'manager']; // Settings might be restricted for supervisor
+// ROLE CONSTANTS
+const ALL_MANAGEMENT = ['owner', 'admin', 'manager', 'supervisor'];
+const FULL_ACCESS = ['owner', 'admin', 'manager', 'supervisor', 'operator', 'seller'];
+const ADMIN_ONLY = ['owner', 'admin', 'manager']; // Settings might be restricted for supervisor
 
 function App() {
   return (
@@ -76,6 +83,8 @@ function App() {
                 <LoginPage />
               </PublicOnlyRoute>
             } />
+
+
 
             <Route path="/forgot-password" element={
               <PublicOnlyRoute>
@@ -112,9 +121,22 @@ function App() {
               </ProtectedRoute>
             } />
 
+            {/* SUPER ADMIN */}
+            <Route path="/admin/tenants" element={
+              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
+                <SuperAdminPage />
+              </ProtectedRoute>
+            } />
+
             <Route path="/settings" element={
               <ProtectedRoute allowedRoles={ADMIN_ONLY}>
                 <SettingsPage />
+              </ProtectedRoute>
+            } />
+
+            <Route path="/organization" element={
+              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
+                <OrganizationSettings />
               </ProtectedRoute>
             } />
 

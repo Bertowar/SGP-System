@@ -8,6 +8,7 @@ export const signIn = async (email: string, password: string) => {
     password,
   });
   if (error) throw error;
+  console.log("signIn: Success", data);
   return data;
 };
 
@@ -35,8 +36,8 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
       console.error('Error fetching profile:', error);
     }
 
-    // Fallback if no profile exists yet, default to operator
-    const role: UserRole = profileData?.role === 'manager' ? 'manager' : 'operator';
+    // Use the role from profile or default to 'operator' if undefined
+    const role: UserRole = (profileData?.role as UserRole) || 'operator';
 
     const { data: { user } } = await supabase.auth.getUser();
 
@@ -46,7 +47,10 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
       id: userId,
       email: user.email || '',
       role: role,
-      fullName: profileData?.full_name
+      fullName: profileData?.full_name,
+      organizationId: profileData?.organization_id,
+      avatarUrl: profileData?.avatar_url,
+      isSuperAdmin: profileData?.is_super_admin
     };
   } catch (e) {
     console.error(e);

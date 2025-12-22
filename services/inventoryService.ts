@@ -149,19 +149,21 @@ export const fetchMaterialTransactions = async (materialId: string): Promise<Inv
 };
 
 export const processStockTransaction = async (trx: Omit<InventoryTransaction, 'id' | 'createdAt' | 'material'>, newUnitCost?: number): Promise<void> => {
-    const qty = Number(trx.quantity);
-    const { data: mat } = await supabase.from('raw_materials').select('id, current_stock, name').eq('id', trx.materialId).single();
-    if (!mat) throw new Error("Material não encontrado.");
-    let newStock = Number(mat.current_stock) || 0;
-    if (trx.type === 'IN') newStock += qty;
-    else if (trx.type === 'OUT') newStock -= qty;
-    else if (trx.type === 'ADJ') newStock = qty;
-    await supabase.from('inventory_transactions').insert([{ material_id: trx.materialId, type: trx.type, quantity: trx.quantity, related_entry_id: trx.relatedEntryId, notes: trx.notes || null }]);
+    // Insert the transaction. The database trigger 'trg_update_stock' will automatically update the raw_materials.current_stock.
+    const { error } = await supabase.from('inventory_transactions').insert([{
+        material_id: trx.materialId,
+        type: trx.type,
+        quantity: trx.quantity,
+        related_entry_id: trx.relatedEntryId,
+        notes: trx.notes || null
+    }]);
 
-    const updatePayload: any = { current_stock: newStock };
-    if (newUnitCost !== undefined) updatePayload.unit_cost = newUnitCost;
+    if (error) throw error;
 
-    await supabase.from('raw_materials').update(updatePayload).eq('id', trx.materialId);
+    // We still need to manually update unit_cost if it was provided, as the trigger only handles stock quantity.
+    if (newUnitCost !== undefined) {
+        await supabase.from('raw_materials').update({ unit_cost: newUnitCost }).eq('id', trx.materialId);
+    }
 };
 
 export const processStockDeduction = async (entry: { productCode?: number | null, qtyOK: number, id: string }): Promise<void> => {

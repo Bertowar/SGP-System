@@ -2,8 +2,8 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-    LayoutDashboard, PlusCircle, List, Box, Bell, Settings as SettingsIcon, LogOut, User,
-    Wifi, WifiOff, AlertTriangle, Cuboid, Wrench, Menu, X, Layers, Package, Target, Truck, Database, DollarSign, ShoppingCart, ClipboardCheck, ClipboardList, FileText, Upload, Zap
+    LayoutDashboard, PlusCircle, List, Box, Bell, Settings as SettingsIcon, LogOut, User, Building,
+    Wifi, WifiOff, AlertTriangle, Cuboid, Wrench, Menu, X, Layers, Package, Target, Truck, Database, DollarSign, ShoppingCart, ClipboardCheck, ClipboardList, FileText, Upload, Zap, ShieldAlert
 } from 'lucide-react';
 import { getUnreadAlertCount, checkConnection, fetchSettings } from '../services/storage';
 import { useAuth } from '../contexts/AuthContext';
@@ -63,9 +63,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     };
 
     // Roles helpers
-    const ALL_MGMT = ['admin', 'manager', 'supervisor'];
-    const ALL_ACCESS = ['admin', 'manager', 'supervisor', 'operator'];
-    const ADMIN_MGMT = ['admin', 'manager'];
+    // Roles helpers
+    const ALL_MGMT = ['owner', 'admin', 'manager', 'supervisor'];
+    const ALL_ACCESS = ['owner', 'admin', 'manager', 'supervisor', 'operator', 'seller'];
+    const ADMIN_MGMT = ['owner', 'admin', 'manager'];
 
     const navItems = {
         production: [
@@ -74,7 +75,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             { to: '/entry', label: 'Apontamento', icon: <PlusCircle size={20} />, roles: ALL_ACCESS },
             { to: '/fast-entry', label: 'Digitação Rápida', icon: <Zap size={20} />, roles: ALL_MGMT },
             { to: '/list', label: 'Registros', icon: <List size={20} />, roles: ALL_MGMT },
+            { to: '/organization', label: 'Minha Organização', icon: <Building size={20} />, roles: ALL_MGMT },
             { to: '/settings', label: 'Configurações', icon: <SettingsIcon size={20} />, roles: ADMIN_MGMT },
+            // Super Admin Link - Only visible if has flag in user object (need to update type usage in map or just hack it)
+            ...(user?.isSuperAdmin ? [{ to: '/admin/tenants', label: 'Super Admin', icon: <ShieldAlert size={20} />, roles: ALL_MGMT }] : []),
         ],
         inventory: [
             { to: '/inventory', label: 'Gestão de Estoque', icon: <Cuboid size={20} />, roles: ALL_ACCESS },
@@ -258,7 +262,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                     <div className="hidden md:flex items-center">
                         <div className="flex items-center space-x-2 bg-orange-50 border border-orange-200 text-orange-700 px-3 py-1.5 rounded-full shadow-sm">
                             <AlertTriangle size={14} className="animate-pulse" />
-                            <span className="text-xs font-bold tracking-wide">Modo Dev v7.9.9</span>
+                            <span className="text-xs font-bold tracking-wide">Beta 1.0</span>
                         </div>
                     </div>
 
@@ -283,12 +287,44 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                             <div className="text-right hidden sm:block mr-3">
                                 <p className="text-sm font-bold text-slate-800 leading-tight">{user?.fullName || user?.email}</p>
                                 <p className="text-sm text-slate-500 uppercase tracking-wider font-bold">
-                                    {user?.role === 'admin' ? 'Administrador' : user?.role === 'manager' ? 'Gerente' : user?.role === 'supervisor' ? 'Supervisor' : 'Operador'}
+                                    {(() => {
+                                        switch (user?.role) {
+                                            case 'owner': return 'Proprietário';
+                                            case 'admin': return 'Administrador';
+                                            case 'manager': return 'Gerente';
+                                            case 'supervisor': return 'Supervisor';
+                                            case 'seller': return 'Vendedor';
+                                            default: return 'Operador';
+                                        }
+                                    })()}
                                 </p>
                             </div>
-                            <div className="w-9 h-9 bg-brand-100 rounded-full flex items-center justify-center text-brand-700 border border-brand-200 shadow-sm">
-                                <User size={18} />
+
+                            {/* AVATAR + DROPDOWN (SUPER ADMIN ONLY) */}
+                            <div className="relative group">
+                                <div className={`w-9 h-9 bg-brand-100 rounded-full flex items-center justify-center text-brand-700 border border-brand-200 shadow-sm cursor-pointer ${user?.isSuperAdmin ? 'hover:ring-2 hover:ring-brand-500' : ''}`}>
+                                    <User size={18} />
+                                </div>
+
+                                {user?.isSuperAdmin && (
+                                    <div className="hidden group-hover:block absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-200 z-50 p-1">
+                                        <div className="px-3 py-2 border-b border-slate-100 text-xs font-bold text-slate-400 uppercase">
+                                            Trocar Papel (Debug)
+                                        </div>
+                                        {['owner', 'admin', 'manager', 'supervisor', 'operator', 'seller'].map(r => (
+                                            <button
+                                                key={r}
+                                                onClick={() => (useAuth() as any).debugSetRole(r)}
+                                                className={`w-full text-left px-3 py-2 text-sm rounded hover:bg-slate-50 flex items-center justify-between ${user.role === r ? 'font-bold text-brand-600' : 'text-slate-600'}`}
+                                            >
+                                                <span>{r}</span>
+                                                {user.role === r && <div className="w-1.5 h-1.5 rounded-full bg-brand-500"></div>}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
+
                             <button
                                 onClick={handleLogout}
                                 className="ml-3 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"

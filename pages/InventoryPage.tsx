@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { fetchMaterials, saveMaterial, deleteMaterial, processStockTransaction, fetchInventoryTransactions, formatError, renameMaterialGroup, fetchAllBOMs, fetchProducts } from '../services/storage';
+import { fetchMaterials, saveMaterial, deleteMaterial, processStockTransaction, fetchInventoryTransactions, fetchMaterialTransactions, formatError, renameMaterialGroup, fetchAllBOMs, fetchProducts } from '../services/storage';
 import { calculateKittingOptions } from '../services/kittingService';
 import { RawMaterial, MaterialCategory, InventoryTransaction } from '../types';
 import { Plus, Search, Cuboid, Save, ArrowDownCircle, ArrowUpCircle, RefreshCw, Trash2, X, Box, Zap, User, Hammer, Loader2, AlertCircle, ArrowRight, Minus, History, FileText, DollarSign, BarChart3, Filter, Cpu, Layers, ChevronRight, ArrowLeft, LayoutGrid, List as ListIcon, Edit, Undo2, Info, CheckCircle2, Tag } from 'lucide-react';
+import { StockHistoryModal } from '../components/StockHistoryModal';
+import { toast } from 'sonner';
+
 import { Input } from '../components/Input';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -55,8 +58,13 @@ const InventoryPage: React.FC = () => {
     // Modals
     const [modalOpen, setModalOpen] = useState(false);
     const [trxModalOpen, setTrxModalOpen] = useState(false);
+    const [historyModalOpen, setHistoryModalOpen] = useState(false); // NEW
     const [kittingModalOpen, setKittingModalOpen] = useState(false);
     const [kittingOptions, setKittingOptions] = useState<any[]>([]);
+
+    // History View State
+    const [historyItems, setHistoryItems] = useState<InventoryTransaction[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
 
     // Form States
     const [editingMat, setEditingMat] = useState<RawMaterial | null>(null);
@@ -112,6 +120,25 @@ const InventoryPage: React.FC = () => {
     const handleRefreshHistory = async () => {
         const trxData = await fetchInventoryTransactions();
         setTransactions(trxData);
+    };
+
+    const openHistory = async (mat?: RawMaterial) => {
+        setHistoryLoading(true);
+        setHistoryModalOpen(true);
+        setSelectedMat(mat || null);
+        try {
+            if (mat) {
+                const specificHistory = await fetchMaterialTransactions(mat.id);
+                setHistoryItems(specificHistory);
+            } else {
+                setHistoryItems(transactions);
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error("Erro ao carregar histórico.");
+        } finally {
+            setHistoryLoading(false);
+        }
     };
 
     // --- GROUPING LOGIC ---
@@ -175,14 +202,14 @@ const InventoryPage: React.FC = () => {
         // Validation for Create Modes
         if (groupMode === 'CREATE') {
             if (!editingMat.group || editingMat.group.trim().length < 2) {
-                alert("Por favor, digite um nome válido para a nova família/grupo (mínimo 2 caracteres).");
+                toast.warning("Por favor, digite um nome válido para a nova família/grupo (mínimo 2 caracteres).");
                 return;
             }
         }
 
         if (categoryMode === 'CREATE') {
             if (!editingMat.category || editingMat.category.trim().length < 2) {
-                alert("Por favor, digite um nome válido para a nova categoria.");
+                toast.warning("Por favor, digite um nome válido para a nova categoria.");
                 return;
             }
         }
@@ -209,7 +236,7 @@ const InventoryPage: React.FC = () => {
             setEditingMat(null);
             loadData();
         } catch (error: any) {
-            alert("Erro ao salvar material: " + formatError(error));
+            toast.error("Erro ao salvar material: " + formatError(error));
         } finally {
             setIsSubmitting(false);
         }
@@ -232,8 +259,9 @@ const InventoryPage: React.FC = () => {
         try {
             await deleteMaterial(id);
             loadData();
+            toast.success("Material excluído com sucesso.");
         } catch (e: any) {
-            alert("Não é possível excluir: " + formatError(e));
+            toast.error("Não é possível excluir: " + formatError(e));
         }
     };
 
@@ -460,6 +488,9 @@ const InventoryPage: React.FC = () => {
                             <ArrowLeft size={18} className="mr-2" /> Voltar
                         </button>
                     )}
+                    <button onClick={() => openHistory()} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg flex items-center hover:bg-slate-50 shadow-sm transition-all font-bold mr-2">
+                        <History size={20} className="mr-2 text-slate-500" /> Histórico Geral
+                    </button>
                     <button onClick={handleOpenKitting} className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-purple-700 shadow-sm transition-all font-bold mr-2">
                         <Layers size={20} className="mr-2" /> Assistente de Montagem
                     </button>
@@ -678,6 +709,13 @@ const InventoryPage: React.FC = () => {
                                                 </td>
                                                 <td className="px-6 py-4 text-center">
                                                     <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <button
+                                                            onClick={() => openHistory(mat)}
+                                                            className="p-1.5 bg-brand-50 text-brand-700 rounded hover:bg-brand-100"
+                                                            title="Ver Histórico (Kardex)"
+                                                        >
+                                                            <History size={16} />
+                                                        </button>
                                                         <button
                                                             onClick={() => openTrx(mat, 'IN')}
                                                             className="p-1.5 bg-green-50 text-green-700 rounded hover:bg-green-100"
@@ -1083,6 +1121,16 @@ const InventoryPage: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            {/* MODAL HISTORY (KARDEX) */}
+            <StockHistoryModal
+                isOpen={historyModalOpen}
+                onClose={() => setHistoryModalOpen(false)}
+                loading={historyLoading}
+                historyItems={historyItems}
+                selectedMat={selectedMat}
+            />
+
 
         </div>
     );

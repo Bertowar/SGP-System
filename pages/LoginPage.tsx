@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Box, Lock, Mail, Loader2, Info } from 'lucide-react';
+import { Box, Lock, Mail, Loader2, Info, Eye, EyeOff } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [localLoading, setLocalLoading] = useState(false);
@@ -35,10 +36,24 @@ const LoginPage: React.FC = () => {
         localStorage.removeItem('pplast_saved_email');
       }
 
-      await manualLogin(email, password);
 
+      // Create a timeout promise
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Tempo limite excedido')), 8000)
+      );
+
+      // Race against the login attempt
+      await Promise.race([
+        manualLogin(email, password),
+        timeoutPromise
+      ]);
+
+      // Success
+      console.log('Login successful, navigating...');
+      navigate('/');
     } catch (err: any) {
-      setError('Credenciais inválidas ou erro de conexão.');
+      console.error('Login error:', err);
+      setError(err.message || 'Erro ao conectar.');
       setLocalLoading(false);
     }
   };
@@ -87,14 +102,24 @@ const LoginPage: React.FC = () => {
               <div className="relative">
                 <Lock className="absolute left-3 top-3 text-slate-500 z-10" size={18} />
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-white text-black border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all font-medium"
+                  className="w-full pl-10 pr-12 py-3 bg-white text-black border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all font-medium"
                   placeholder="••••••••"
                   style={{ backgroundColor: 'white', color: 'black' }}
                 />
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setShowPassword(!showPassword);
+                  }}
+                  className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 focus:outline-none z-20"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 
@@ -125,13 +150,28 @@ const LoginPage: React.FC = () => {
             </button>
           </form>
 
+
           <div className="mt-6 text-center">
             <p className="text-xs text-slate-400">Problemas de acesso? Contate o suporte.</p>
+            <button
+              type="button"
+              className="text-[10px] text-slate-300 hover:text-slate-500 mt-4 underline"
+              onClick={async () => {
+                try {
+                  const start = Date.now();
+                  const res = await fetch(import.meta.env.VITE_SUPABASE_URL, { method: 'HEAD' });
+                  alert(`Conexão OK! (${Date.now() - start}ms)\nStatus: ${res.status}`);
+                } catch (e: any) {
+                  alert(`Erro de Conexão: ${e.message}\nVerifique seu firewall ou adblock.`);
+                }
+              }}
+            >
+              Testar Conexão com Servidor
+            </button>
           </div>
         </div>
       </div>
     </div>
   );
 };
-
 export default LoginPage;
