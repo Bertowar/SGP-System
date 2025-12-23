@@ -13,6 +13,7 @@ interface AuthContextType {
   manualLogin: (email: string, pass: string) => Promise<void>;
   logout: () => Promise<void>;
   debugSetRole: (role: string) => void;
+  cleanStorage: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -23,6 +24,7 @@ const AuthContext = createContext<AuthContextType>({
   manualLogin: async () => { },
   logout: async () => { },
   debugSetRole: () => { },
+  cleanStorage: () => { },
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -98,7 +100,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const timer = setTimeout(() => {
       if (isMounted) setLoading(false);
-    }, 3000);
+    }, 10000);
 
     return () => {
       isMounted = false;
@@ -124,6 +126,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const cleanStorage = () => {
+    localStorage.removeItem('sgp-auth-token');
+    localStorage.removeItem('sb-ojnrtqejmnssmkgywufa-auth-token');
+    localStorage.clear();
+    window.location.reload();
+  };
+
   const value = {
     user,
     session,
@@ -131,7 +140,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isAdmin: user?.role === 'admin' || user?.role === 'manager', // Backwards compatibility helper
     manualLogin,
     logout,
-    debugSetRole
+    debugSetRole,
+    cleanStorage
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

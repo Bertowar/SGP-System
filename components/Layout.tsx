@@ -1,9 +1,10 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
     LayoutDashboard, PlusCircle, List, Box, Bell, Settings as SettingsIcon, LogOut, User, Building,
-    Wifi, WifiOff, AlertTriangle, Cuboid, Wrench, Menu, X, Layers, Package, Target, Truck, Database, DollarSign, ShoppingCart, ClipboardCheck, ClipboardList, FileText, Upload, Zap, ShieldAlert
+    Wifi, WifiOff, AlertTriangle, Cuboid, Wrench, Menu, X, Layers, Package, Target, Truck, Database, DollarSign, ShoppingCart, ClipboardCheck, ClipboardList, FileText, Upload, Zap, ShieldAlert,
+    Users, ChevronRight, ChevronDown
 } from 'lucide-react';
 import { getUnreadAlertCount, checkConnection, fetchSettings } from '../services/storage';
 import { useAuth } from '../contexts/AuthContext';
@@ -17,7 +18,7 @@ type ModuleType = 'production' | 'inventory' | 'engineering' | 'logistics' | 'fi
 const Layout: React.FC<LayoutProps> = ({ children }) => {
     const location = useLocation();
     const navigate = useNavigate();
-    const { user, isAdmin, logout } = useAuth();
+    const { user, isAdmin, logout, debugSetRole } = useAuth();
 
     const [unreadCount, setUnreadCount] = useState(0);
     const [isOnline, setIsOnline] = useState(true);
@@ -25,6 +26,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [maintenanceMode, setMaintenanceMode] = useState(false);
     const [enableProductionOrders, setEnableProductionOrders] = useState(true);
+    const [userMenuOpen, setUserMenuOpen] = useState(false);
+    const [roleMenuOpen, setRoleMenuOpen] = useState(false);
 
     // Sync Active Module based on URL
     useEffect(() => {
@@ -46,6 +49,22 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             setEnableProductionOrders(settings.enableProductionOrders);
         }
     };
+
+    const userMenuRef = useRef<HTMLDivElement>(null);
+
+    // Close menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+                setUserMenuOpen(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []);
 
     useEffect(() => {
         fetchStatus();
@@ -300,38 +319,84 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                                 </p>
                             </div>
 
-                            {/* AVATAR + DROPDOWN (SUPER ADMIN ONLY) */}
-                            <div className="relative group">
-                                <div className={`w-9 h-9 bg-brand-100 rounded-full flex items-center justify-center text-brand-700 border border-brand-200 shadow-sm cursor-pointer ${user?.isSuperAdmin ? 'hover:ring-2 hover:ring-brand-500' : ''}`}>
+                            {/* AVATAR + DROPDOWN */}
+                            <div ref={userMenuRef} className="relative">
+                                <button
+                                    onClick={() => setUserMenuOpen(!userMenuOpen)}
+                                    className={`w-9 h-9 bg-brand-100 rounded-full flex items-center justify-center text-brand-700 border border-brand-200 shadow-sm cursor-pointer hover:ring-2 hover:ring-brand-500 focus:outline-none transition-all ${userMenuOpen ? 'ring-2 ring-brand-500' : ''}`}
+                                >
                                     <User size={18} />
-                                </div>
+                                </button>
 
-                                {user?.isSuperAdmin && (
-                                    <div className="hidden group-hover:block absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-200 z-50 p-1">
-                                        <div className="px-3 py-2 border-b border-slate-100 text-xs font-bold text-slate-400 uppercase">
-                                            Trocar Papel (Debug)
+                                {/* MENU PRINCIPAL */}
+                                {userMenuOpen && (
+                                    <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-xl border border-slate-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+
+                                        {/* Header do Menu */}
+                                        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+                                            <p className="text-sm font-bold text-slate-800">{user?.fullName || 'Usuário'}</p>
+                                            <p className="text-xs text-slate-500 truncate">{user?.email}</p>
                                         </div>
-                                        {['owner', 'admin', 'manager', 'supervisor', 'operator', 'seller'].map(r => (
+
+                                        {/* Opções Padrão */}
+                                        <div className="p-1 border-b border-slate-100">
                                             <button
-                                                key={r}
-                                                onClick={() => (useAuth() as any).debugSetRole(r)}
-                                                className={`w-full text-left px-3 py-2 text-sm rounded hover:bg-slate-50 flex items-center justify-between ${user.role === r ? 'font-bold text-brand-600' : 'text-slate-600'}`}
+                                                onClick={() => { navigate('/profile'); setUserMenuOpen(false); }}
+                                                className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded flex items-center"
                                             >
-                                                <span>{r}</span>
-                                                {user.role === r && <div className="w-1.5 h-1.5 rounded-full bg-brand-500"></div>}
+                                                <SettingsIcon size={16} className="mr-2" /> Meu Perfil
                                             </button>
-                                        ))}
+                                        </div>
+
+                                        {/* TROCA DE PAPEL (Super Admin) - SUBMENU ACCORDION */}
+                                        {user?.isSuperAdmin && (
+                                            <div className="border-b border-slate-100">
+                                                <button
+                                                    onClick={() => setRoleMenuOpen(!roleMenuOpen)}
+                                                    className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between transition-colors ${roleMenuOpen ? 'bg-slate-50 text-brand-600 font-medium' : 'text-slate-600 hover:bg-slate-100'}`}
+                                                >
+                                                    <div className="flex items-center">
+                                                        <Users size={16} className="mr-2" />
+                                                        Trocar Perfil
+                                                    </div>
+                                                    {roleMenuOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                                </button>
+
+                                                {roleMenuOpen && (
+                                                    <div className="bg-slate-50 py-1 border-t border-slate-100 animate-in slide-in-from-top-1 duration-150">
+                                                        {['owner', 'admin', 'manager', 'supervisor', 'operator', 'seller'].map(r => (
+                                                            <button
+                                                                key={r}
+                                                                onClick={() => {
+                                                                    debugSetRole(r);
+                                                                    setUserMenuOpen(false);
+                                                                    setRoleMenuOpen(false);
+                                                                }}
+                                                                className={`w-full text-left px-4 pl-9 py-1.5 text-xs flex items-center justify-between hover:bg-slate-200/50 ${user.role === r ? 'font-bold text-brand-600 bg-brand-50/50' : 'text-slate-500'}`}
+                                                            >
+                                                                <span>{r.charAt(0).toUpperCase() + r.slice(1)}</span>
+                                                                {user.role === r && <div className="w-1.5 h-1.5 rounded-full bg-brand-500"></div>}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Logout */}
+                                        <div className="p-1">
+                                            <button
+                                                onClick={() => { handleLogout(); setUserMenuOpen(false); }}
+                                                className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded flex items-center"
+                                            >
+                                                <LogOut size={16} className="mr-2" /> Sair
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
                             </div>
 
-                            <button
-                                onClick={handleLogout}
-                                className="ml-3 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"
-                                title="Sair"
-                            >
-                                <LogOut size={18} />
-                            </button>
+
                         </div>
                     </div>
                 </header>

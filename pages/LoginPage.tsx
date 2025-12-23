@@ -39,7 +39,7 @@ const LoginPage: React.FC = () => {
 
       // Create a timeout promise
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Tempo limite excedido')), 8000)
+        setTimeout(() => reject(new Error('Tempo limite excedido. O servidor pode estar inicializando ("cold start").')), 45000)
       );
 
       // Race against the login attempt
@@ -75,9 +75,21 @@ const LoginPage: React.FC = () => {
         <div className="p-8">
           <form onSubmit={handleLogin} className="space-y-6">
             {error && (
-              <div className="bg-red-50 text-red-600 text-sm p-3 rounded-lg border border-red-100 flex items-center">
-                <Info size={16} className="mr-2 flex-shrink-0" />
-                {error}
+              <div className="bg-red-50 text-red-600 text-sm p-3 rounded-lg border border-red-100 flex flex-col gap-2">
+                <div className="flex items-center">
+                  <Info size={16} className="mr-2 flex-shrink-0" />
+                  {error}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    localStorage.clear();
+                    window.location.reload();
+                  }}
+                  className="text-xs underline text-red-700 hover:text-red-900 text-left ml-6"
+                >
+                  Clique aqui para Limpar Cache e Tentar Novamente
+                </button>
               </div>
             )}
 
@@ -153,21 +165,6 @@ const LoginPage: React.FC = () => {
 
           <div className="mt-6 text-center">
             <p className="text-xs text-slate-400">Problemas de acesso? Contate o suporte.</p>
-            <button
-              type="button"
-              className="text-[10px] text-slate-300 hover:text-slate-500 mt-4 underline"
-              onClick={async () => {
-                try {
-                  const start = Date.now();
-                  const res = await fetch(import.meta.env.VITE_SUPABASE_URL, { method: 'HEAD' });
-                  alert(`Conexão OK! (${Date.now() - start}ms)\nStatus: ${res.status}`);
-                } catch (e: any) {
-                  alert(`Erro de Conexão: ${e.message}\nVerifique seu firewall ou adblock.`);
-                }
-              }}
-            >
-              Testar Conexão com Servidor
-            </button>
           </div>
         </div>
       </div>
