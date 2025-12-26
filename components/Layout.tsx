@@ -165,16 +165,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             {/* 1. RAIL (Módulos) - Desktop Only */}
             <aside className={`hidden md:flex flex-col w-20 bg-slate-900 border-r border-slate-800 z-30 shadow-xl shrink-0 ${maintenanceMode ? 'mt-6' : ''}`}>
                 <div className="h-16 flex items-center justify-center border-b border-slate-800 p-2">
-                    {currentOrg?.logo_url ? (
-                        <img
-                            src={currentOrg.logo_url}
-                            alt={currentOrg.name}
-                            className="w-10 h-10 object-contain rounded bg-white/5 p-0.5"
-                            title={currentOrg.name}
-                        />
-                    ) : (
-                        <Box className="text-brand-500" size={28} />
-                    )}
+                    <Box className="text-brand-500" size={28} />
                 </div>
 
                 <div className="flex-1 flex flex-col gap-2 py-4 overflow-y-auto">
@@ -225,14 +216,23 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         ${maintenanceMode ? 'mt-6' : ''}
       `}>
                 {/* Mobile Header inside Drawer */}
-                <div className="h-16 flex items-center px-6 border-b border-brand-800 justify-between md:justify-start">
+                {/* Mobile Header inside Drawer */}
+                <div className="h-16 flex items-center px-6 border-b border-brand-800 justify-between md:justify-start gap-4">
+                    {currentOrg?.logo_url && (
+                        <img
+                            src={currentOrg.logo_url}
+                            alt={currentOrg.name}
+                            className="w-10 h-10 object-contain rounded bg-white/10 p-0.5"
+                            title={currentOrg.name}
+                        />
+                    )}
                     <div className="flex flex-col">
                         <span className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">Módulo</span>
                         <h2 className="text-lg font-bold text-white leading-tight">
                             {activeModule === 'production' ? 'Produção' : activeModule === 'inventory' ? 'Estoque' : activeModule === 'logistics' ? 'Logística' : activeModule === 'financial' ? 'Financeiro' : 'Engenharia'}
                         </h2>
                     </div>
-                    <button onClick={() => setMobileMenuOpen(false)} className="md:hidden text-brand-300"><X size={24} /></button>
+                    <button onClick={() => setMobileMenuOpen(false)} className="md:hidden text-brand-300 ml-auto"><X size={24} /></button>
                 </div>
 
                 {/* Mobile Module Switcher (Visible only on mobile) */}
