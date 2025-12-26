@@ -1,10 +1,6 @@
 // @ts-nocheck
-// Follow this setup guide to integrate the Deno language server with your editor:
-// https://deno.land/manual/getting_started/setup_your_environment
-// This enables autocomplete, go to definition, etc.
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.0.0"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -12,69 +8,94 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
-    // Handle CORS preflight request
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders })
     }
 
+    let trace = [];
+    let profileData = null;
+
     try {
-        // 1. Create a Supabase Client with the Auth Context of the logged in user
+        trace.push('start');
+
+        const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? Deno.env.get('PROJECT_URL') ?? '';
+        const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? Deno.env.get('PROJECT_ANON_KEY') ?? '';
+        const serviceRoleKey = Deno.env.get('SERVICE_ROLE_KEY') ?? '';
+        trace.push('env_resolved');
+
         const supabaseClient = createClient(
-            // @ts-ignore
-            Deno.env.get('SUPABASE_URL') ?? '',
-            // @ts-ignore
-            Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-            { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
+            supabaseUrl,
+            supabaseAnonKey,
+            {
+                global: { headers: { Authorization: req.headers.get('Authorization')! } },
+                auth: { persistSession: false }
+            }
         )
 
-        // 2. Get the User from the request
-        const {
-            data: { user },
-        } = await supabaseClient.auth.getUser()
+        trace.push('client_created');
 
-        if (!user) {
-            throw new Error('Unauthorized')
+        const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
+
+        if (userError) {
+            console.error("Auth Error:", userError);
+            trace.push('auth_error: ' + userError.message);
+        } else {
+            trace.push('auth_success');
         }
 
-        // 3. Get the User's Profile to check Role and Org
-        const { data: profile } = await supabaseClient
+        if (!user) throw new Error('Unauthorized');
+
+        trace.push('fetching_profile');
+        const { data: profile, error: profileError } = await supabaseClient
             .from('profiles')
             .select('organization_id, role')
             .eq('id', user.id)
             .single()
 
+        if (profileError) {
+            trace.push('profile_error: ' + profileError.message);
+        }
+        profileData = profile;
+
         if (!profile || (profile.role !== 'owner' && profile.role !== 'manager' && profile.role !== 'admin')) {
+            trace.push('profile_check_failed');
             return new Response(JSON.stringify({ error: 'Only owners, managers and admins can invite members.' }), {
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                 status: 403,
             })
         }
+        trace.push('profile_valid');
 
-        // 4. Parse Request Body
         const { email, role } = await req.json()
+        trace.push('body_parsed');
 
-        if (!email) {
-            throw new Error('Email is required.')
-        }
+        if (!email) throw new Error('Email is required.')
 
-        // 5. Create Admin Client (Service Role) to perform the invite
         const supabaseAdmin = createClient(
-            // @ts-ignore
-            Deno.env.get('SUPABASE_URL') ?? '',
-            // @ts-ignore
-            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+            supabaseUrl,
+            serviceRoleKey,
+            {
+                auth: {
+                    autoRefreshToken: false,
+                    persistSession: false
+                }
+            }
         )
 
-        // 6. Invite User
+        trace.push('inviting_user');
         const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
             data: {
-                organization_id: profile.organization_id, // Force same org as inviter
-                role: role || 'entry', // Default to entry if not specified
-                company_name: 'Minha Empresa' // Opcional, apenas para contexto no email template
+                organization_id: profile.organization_id,
+                role: role || 'entry',
+                company_name: 'Minha Empresa'
             }
         })
 
-        if (inviteError) throw inviteError
+        if (inviteError) {
+            trace.push('invite_error: ' + inviteError.message);
+            throw inviteError
+        }
+        trace.push('invite_success');
 
         return new Response(JSON.stringify(inviteData), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -82,7 +103,27 @@ serve(async (req) => {
         })
 
     } catch (error) {
-        return new Response(JSON.stringify({ error: error.message }), {
+        // Parse JWT role (simple decode without verify)
+        let keyRole = 'invalid';
+        try {
+            const serviceKey = Deno.env.get('SERVICE_ROLE_KEY') ?? '';
+            const [, payload] = serviceKey.split('.');
+            if (payload) {
+                const decoded = JSON.parse(atob(payload));
+                keyRole = decoded.role;
+            }
+        } catch (e) {
+            keyRole = 'parse_error';
+        }
+
+        const debug = {
+            trace,
+            keyRole, // <--- CRITICAL CHECK
+            profile: profileData,
+            errorOriginal: error.message
+        };
+
+        return new Response(JSON.stringify({ error: error.message, debug }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             status: 400,
         })

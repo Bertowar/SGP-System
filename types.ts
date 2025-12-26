@@ -1,5 +1,6 @@
 export interface Product {
-  codigo: number;
+  id?: string; // NEW: UUID for internal relationship
+  codigo: string;
   produto: string;
   descricao: string;
   pesoLiquido: number;
@@ -11,7 +12,15 @@ export interface Product {
   scrapMaterialId?: string; // ID da MP que este produto gera ao ser refugado (Economia Circular)
   compatibleMachines?: string[]; // Array of Machine Codes
   unit?: string; // NEW: kg, un, mil, cx
+
   currentStock?: number; // NEW: Estoque Atual do Produto Acabado
+  productTypeId?: string; // NEW: FK for dynamic type
+}
+
+export interface ProductTypeDefinition {
+  id: string;
+  name: string;
+  classification: 'FINISHED' | 'INTERMEDIATE' | 'COMPONENT';
 }
 
 // NEW: Interface para a View Materializada de Custos
@@ -49,30 +58,35 @@ export interface Sector {
 }
 
 export interface Machine {
+  id?: string; // NEW: UUID
   code: string;
   name: string;
   group?: number;
   acquisitionDate?: string;
   sector?: MachineSector;
   displayOrder?: number; // NEW: Sequence for UI layout
-  productionCapacity?: number; // NEW: Capacidade Nominal (kg/h para Extrusoras, etc)
+  productionCapacity?: number; // NEW: Capacidade Nominal
+  capacity_unit?: string; // NEW: kg/h, un/h, etc
+  machine_value?: number; // NEW: Valor do Patrimônio
 }
 
 export interface MachineStatus {
   status: 'running' | 'stopped' | 'idle';
-  productCode?: number;
+  productCode?: string;
 }
 
 export interface DowntimeType {
   id: string;
   description: string;
   exemptFromOperator?: boolean; // NEW: Flag para permitir salvar sem operador (ex: Falta de Funcionário)
+  sector?: string; // NEW: Vincula o tipo de parada a um setor
 }
 
 export interface ScrapReason {
   id: string;
   description: string;
   active: boolean;
+  sector?: string; // NEW
 }
 
 // NEW: Categoria de Produto Dinâmica
@@ -102,7 +116,7 @@ export interface ProductionEntry {
   date: string; // YYYY-MM-DD
   shift?: string; // Manhã, Tarde, Noite (Opcional)
   operatorId: number;
-  productCode?: number | null; // Opcional para paradas
+  productCode?: string | null; // Opcional para paradas
   machineId: string;
   startTime?: string; // HH:mm - Opcional para paradas apenas com duração
   endTime?: string; // HH:mm - Opcional para paradas apenas com duração
@@ -135,7 +149,7 @@ export type ProductionOrderPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
 export interface ProductionOrder {
   id: string; // OP Number (e.g., OP-2024-001)
-  productCode: number;
+  productCode: string;
   machineId?: string; // Preferred machine
   targetQuantity: number;
   producedQuantity?: number; // Calculated field
@@ -219,6 +233,7 @@ export interface UserProfile {
   role: UserRole;
   fullName?: string;
   organizationId?: string; // FK
+  organizationName?: string; // NEW: Nome da Organização para UI
   avatarUrl?: string;
   isSuperAdmin?: boolean;
 }
@@ -230,6 +245,7 @@ export interface Organization {
   cnpj?: string;
   plan: 'free' | 'pro' | 'enterprise';
   ownerId: string;
+  logo_url?: string;
 }
 
 // --- ERP NEW MODULES ---

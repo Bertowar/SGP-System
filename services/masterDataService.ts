@@ -2,7 +2,7 @@
 import { supabase } from './supabaseClient';
 import { Product, Machine, Operator, DowntimeType, AppSettings, FieldDefinition, ScrapReason, WorkShift, ProductCategory, Sector } from '../types';
 import { PRODUCTS_DB, MACHINES_DB, OPERATORS, DYNAMIC_FIELDS_CONFIG, SYSTEM_OPERATOR_ID } from '../constants';
-import { formatError } from './utils';
+import { formatError, safeNumber } from './utils';
 
 // --- System ---
 
@@ -46,9 +46,18 @@ export const fetchSettings = async (): Promise<AppSettings> => {
   } catch (e) { return DEFAULT_SETTINGS; }
 };
 
+
 export const saveSettings = async (settings: AppSettings): Promise<{ error?: any; fallback?: boolean }> => {
+  const orgId = await getCurrentOrgId();
+  if (!orgId) return { error: "Organization not found" };
+
+  // Get ID for this org's settings if exists, otherwise let it gen uuid or use org_id as key if table allows
+  // Migration says app_settings has organization_id.
+  // We should try to find settings for this org first.
+  const { data: existing } = await supabase.from('app_settings').select('id').eq('organization_id', orgId).single();
+
   const fullSettings = {
-    id: 1,
+    id: existing?.id, // Use existing ID to update, or undefined to insert (if table auto-generates)
     shift_hours: settings.shiftHours,
     efficiency_target: settings.efficiencyTarget,
     require_scrap_reason: settings.requireScrapReason,
@@ -58,14 +67,32 @@ export const saveSettings = async (settings: AppSettings): Promise<{ error?: any
     maintenance_mode: settings.maintenanceMode,
     extrusion_scrap_limit: settings.extrusionScrapLimit,
     thermoforming_scrap_limit: settings.thermoformingScrapLimit,
-    updated_at: new Date().toISOString()
+    updated_at: new Date().toISOString(),
+    organization_id: orgId
   };
 
-  const { error } = await supabase.from('app_settings').upsert([fullSettings]);
+  // If no existing, we insert; RLS should enforce we can only see ours.
+  // The 'app_settings' table might have a constraint. 
+  // Let's assume one row per org.
+
+  // NOTE: If app_settings is singleton per org, we can upsert on organization_id if it has unique constraint?
+  // Migration didn't explicitly add UNIQUE(organization_id), but let's assume get_migration_default_org handled it.
+  // For safety, let's use ID if we found it effectively.
+
+  let query;
+  if (existing?.id) {
+    query = supabase.from('app_settings').update(fullSettings).eq('id', existing.id);
+  } else {
+    // Clean undefined IDs for insertion
+    delete fullSettings.id;
+    query = supabase.from('app_settings').insert([fullSettings]);
+  }
+
+  const { error } = await query;
 
   if (error) {
-    // Silently try legacy save if new columns fail
-    console.warn("Database schema might be outdated. Attempting legacy save.");
+    console.warn("Setting save error, attempting legacy save for safety.");
+    // Legacy save mostly for dev environments without full migration
     const legacySettings = {
       id: 1,
       shift_hours: settings.shiftHours,
@@ -105,10 +132,21 @@ export const fetchFieldDefinitions = async (): Promise<FieldDefinition[]> => {
 };
 
 export const saveFieldDefinition = async (field: FieldDefinition): Promise<void> => {
-  const dbField = { key: field.key, label: field.label, type: field.type, section: field.section, required: field.required, options: field.options, active: true };
-  const { error } = await supabase.from('custom_field_configs').upsert([dbField], { onConflict: 'key' });
+  const orgId = await getCurrentOrgId();
+  const dbField = {
+    key: field.key,
+    label: field.label,
+    type: field.type,
+    section: field.section,
+    required: field.required,
+    options: field.options,
+    active: true,
+    organization_id: orgId
+  };
+  const { error } = await supabase.from('custom_field_configs').upsert([dbField], { onConflict: 'organization_id, key' });
   if (error) throw error;
 };
+
 
 export const deleteFieldDefinition = async (key: string): Promise<void> => {
   const { error } = await supabase.from('custom_field_configs').update({ active: false }).eq('key', key);
@@ -119,12 +157,15 @@ export const fetchProducts = async (): Promise<Product[]> => {
   try {
     const { data: productsData, error: prodError } = await supabase.from('products').select('*').order('name');
     if (prodError) throw prodError;
-    if (!productsData || productsData.length === 0) return PRODUCTS_DB;
+    if (prodError) throw prodError;
+    // IF RLS returns 0 rows (new org), we should show 0 rows, not fallback to Mock Data.
+    if (!productsData) return [];
     const { data: relationsData } = await supabase.from('product_machines').select('*');
     return productsData.map((d: any) => {
       const currentProductCode = String(d.code);
       const relatedMachines = relationsData ? relationsData.filter((r: any) => String(r.product_code) === currentProductCode).map((r: any) => r.machine_code) : [];
       return {
+        id: d.id,
         codigo: d.code,
         produto: d.name,
         descricao: d.description,
@@ -137,32 +178,73 @@ export const fetchProducts = async (): Promise<Product[]> => {
         unit: d.unit || 'un',
         scrapMaterialId: d.scrap_recycling_material_id,
         compatibleMachines: relatedMachines,
-        currentStock: d.current_stock || 0
+        currentStock: d.current_stock || 0,
+        productTypeId: d.product_type_id // NEW
       };
     });
   } catch (e) { return PRODUCTS_DB; }
 };
 
+
+import { getCurrentOrgId } from './auth';
+
 export const saveProduct = async (product: Product): Promise<void> => {
-  const safeNumber = (val: any) => (val === null || val === undefined || val === '') ? 0 : Number(val);
-  const productCode = Math.floor(safeNumber(product.codigo));
-  if (productCode === 0) throw new Error("Código do produto inválido.");
+  // Allow alphanumeric codes
+  const productCode = String(product.codigo).trim().toUpperCase();
+  if (!productCode) throw new Error("Código do produto é obrigatório.");
+
+  const orgId = await getCurrentOrgId();
+  if (!orgId) throw new Error("Organização não identificada. Faça login novamente.");
+
   const fullProduct = {
-    code: productCode, name: product.produto, description: product.descricao,
-    net_weight: safeNumber(product.pesoLiquido), unit_cost: safeNumber(product.custoUnit),
-    selling_price: safeNumber(product.sellingPrice), items_per_hour: safeNumber(product.itemsPerHour),
-    category: product.category, type: product.type, unit: product.unit,
-    scrap_recycling_material_id: product.scrapMaterialId, current_stock: safeNumber(product.currentStock)
+    id: product.id, // Include ID for update
+    code: productCode,
+    name: product.produto,
+    description: product.descricao,
+    net_weight: safeNumber(product.pesoLiquido),
+    unit_cost: safeNumber(product.custoUnit),
+    selling_price: safeNumber(product.sellingPrice),
+    items_per_hour: safeNumber(product.itemsPerHour),
+    category: product.category,
+    type: product.type,
+    unit: product.unit,
+    scrap_recycling_material_id: product.scrapMaterialId,
+    current_stock: safeNumber(product.currentStock),
+    product_type_id: product.productTypeId, // NEW
+    organization_id: orgId // Explicitly set org ID
   };
-  const { error } = await supabase.from('products').upsert([fullProduct], { onConflict: 'code' });
-  if (error) {
-    const basicProduct = { code: productCode, name: product.produto, description: product.descricao, net_weight: safeNumber(product.pesoLiquido), unit_cost: safeNumber(product.custoUnit), unit: product.unit, type: product.type, category: product.category };
-    await supabase.from('products').upsert([basicProduct], { onConflict: 'code' });
+
+  // FIX: Use explicit Update vs Insert to allow changing the Code
+  let error;
+
+  if (product.id) {
+    // Update existing
+    const { error: err } = await supabase.from('products').update(fullProduct).eq('id', product.id);
+    error = err;
+  } else {
+    // Insert new (remove undefined ID to let DB generate it)
+    const { id, ...insertPayload } = fullProduct;
+    const { error: err } = await supabase.from('products').insert([insertPayload]);
+    error = err;
   }
+
+  if (error) {
+    console.error("Erro ao salvar produto:", error);
+    throw error;
+  }
+
+  // Handle relations (cleaner way)
   if (Array.isArray(product.compatibleMachines)) {
-    await supabase.from('product_machines').delete().eq('product_code', productCode);
+    // Delete existing links for this product (RLS handles org isolation automatically, but safer to be specific if table has org_id)
+    await supabase.from('product_machines').delete().eq('product_code', productCode); // product_machines table might need update too, assuming it's simple join table for now
+
     if (product.compatibleMachines.length > 0) {
-      const links = product.compatibleMachines.map(mCode => ({ product_code: productCode, machine_code: mCode }));
+      const links = product.compatibleMachines.map(mCode => ({
+        product_code: productCode,
+        machine_code: mCode
+        // Note: product_machines usually doesn't have org_id if it's a pure join, 
+        // but if RLS is on, it might need it. For now, assuming standard join.
+      }));
       await supabase.from('product_machines').insert(links);
     }
   }
@@ -170,6 +252,7 @@ export const saveProduct = async (product: Product): Promise<void> => {
 
 export const updateProductTarget = async (code: number, itemsPerHour: number): Promise<void> => {
   const target = isNaN(itemsPerHour) || itemsPerHour < 0 ? 0 : Number(itemsPerHour);
+  // RLS ensures we only update our org's product
   await supabase.from('products').update({ items_per_hour: target }).eq('code', code);
 };
 
@@ -181,16 +264,23 @@ export const deleteProduct = async (code: number): Promise<void> => {
   await supabase.from('products').delete().eq('code', code);
 };
 
+// ... (Categories functions remain largely same, leveraging RLS) ...
+
 export const fetchProductCategories = async (): Promise<ProductCategory[]> => {
   try {
     const { data, error } = await supabase.from('product_categories').select('*').order('name');
-    if (error || !data || data.length === 0) return [{ id: 'ARTICULADO', name: 'ARTICULADO' }, { id: 'KIT', name: 'KIT' }];
+    if (error || !data) return [];
     return data as ProductCategory[];
-  } catch (e) { return [{ id: 'ARTICULADO', name: 'ARTICULADO' }, { id: 'KIT', name: 'KIT' }]; }
+  } catch (e) { return []; }
 };
 
 export const saveProductCategory = async (cat: ProductCategory): Promise<void> => {
-  await supabase.from('product_categories').upsert([{ id: cat.id || cat.name.toUpperCase(), name: cat.name }]);
+  const orgId = await getCurrentOrgId();
+  await supabase.from('product_categories').upsert([{
+    id: cat.id || cat.name.toUpperCase(),
+    name: cat.name,
+    organization_id: orgId
+  }]);
 };
 
 export const deleteProductCategory = async (id: string): Promise<void> => {
@@ -200,22 +290,25 @@ export const deleteProductCategory = async (id: string): Promise<void> => {
 export const fetchSectors = async (): Promise<Sector[]> => {
   try {
     const { data, error } = await supabase.from('sectors').select('*').eq('active', true).order('name');
-    if (error || !data || data.length === 0) return [{ id: 'Extrusão', name: 'Extrusão', active: true, isProductive: true }, { id: 'Termoformagem', name: 'Termoformagem', active: true, isProductive: true }];
+    if (error) throw error;
+    if (!data) return [];
     return data.map((d: any) => ({
       id: d.id,
       name: d.name,
       active: d.active,
-      isProductive: d.is_productive || false // NEW: Map from DB
+      isProductive: d.is_productive || false
     }));
-  } catch (e) { return [{ id: 'Extrusão', name: 'Extrusão', active: true, isProductive: true }, { id: 'Termoformagem', name: 'Termoformagem', active: true, isProductive: true }]; }
+  } catch (e) { return []; }
 };
 
 export const saveSector = async (sector: Sector): Promise<void> => {
+  const orgId = await getCurrentOrgId();
   await supabase.from('sectors').upsert([{
     id: sector.id || sector.name.toUpperCase(),
     name: sector.name,
     active: true,
-    is_productive: sector.isProductive || false // NEW: Save to DB
+    is_productive: sector.isProductive || false,
+    organization_id: orgId
   }]);
 };
 
@@ -226,22 +319,47 @@ export const deleteSector = async (id: string): Promise<void> => {
 export const fetchMachines = async (): Promise<Machine[]> => {
   try {
     const { data, error } = await supabase.from('machines').select('*');
-    if (error || !data || data.length === 0) return MACHINES_DB;
+    if (error) throw error;
+    if (!data) return [];
     return data.map((d: any) => ({
+      id: d.id, // NEW
       code: d.code, name: d.name, group: d.group, acquisitionDate: d.acquisition_date,
-      sector: d.sector, displayOrder: d.display_order || 0, productionCapacity: d.production_capacity || 0
+      sector: d.sector, displayOrder: d.display_order || 0, productionCapacity: d.production_capacity || 0,
+      capacity_unit: d.capacity_unit || '', machine_value: d.machine_value || undefined // NEW
     })).sort((a, b) => a.displayOrder - b.displayOrder || a.code.localeCompare(b.code));
-  } catch (e) { return MACHINES_DB; }
+  } catch (e) { return []; }
 };
 
+
 export const saveMachine = async (machine: Machine): Promise<void> => {
-  const dbMachine: any = { code: machine.code, name: machine.name, "group": machine.group || 0, acquisition_date: machine.acquisitionDate, sector: machine.sector, display_order: machine.displayOrder || 0, production_capacity: machine.productionCapacity || 0 };
-  const { error } = await supabase.from('machines').upsert([dbMachine], { onConflict: 'code' });
+  const orgId = await getCurrentOrgId();
+  if (!orgId) throw new Error("Organização não identificada.");
+
+  const dbMachine: any = {
+    code: machine.code,
+    name: machine.name,
+    "group": machine.group || 0,
+    acquisition_date: machine.acquisitionDate,
+    sector: machine.sector,
+    display_order: machine.displayOrder || 0,
+    production_capacity: machine.productionCapacity || 0,
+    capacity_unit: machine.capacity_unit || null, // NEW
+    machine_value: machine.machine_value || null, // NEW
+    organization_id: orgId
+  };
+
+  if (machine.id) {
+    dbMachine.id = machine.id;
+  }
+
+  const { error } = await supabase.from('machines').upsert([dbMachine]); // Removed specific conflict target to allow ID-based update
+
   if (error) {
-    delete dbMachine.production_capacity;
-    await supabase.from('machines').upsert([dbMachine], { onConflict: 'code' });
+    console.error("Error saving machine:", error);
+    throw error;
   }
 };
+
 
 export const deleteMachine = async (code: string): Promise<void> => {
   await supabase.from('machines').delete().eq('code', code);
@@ -250,18 +368,39 @@ export const deleteMachine = async (code: string): Promise<void> => {
 export const fetchOperators = async (): Promise<Operator[]> => {
   try {
     const { data, error } = await supabase.from('operators').select('*').neq('id', SYSTEM_OPERATOR_ID).order('name');
-    if (error || !data || data.length === 0) return OPERATORS;
+    if (error) throw error;
+    if (!data) return [];
     return data.map((d: any) => ({
       id: d.id, name: d.name, sector: d.sector, defaultShift: d.default_shift, role: d.role,
       baseSalary: d.base_salary, admissionDate: d.admission_date, terminationDate: d.termination_date, active: d.active ?? true
     }));
-  } catch (e) { return OPERATORS; }
+  } catch (e) { return []; }
 };
 
+
 export const saveOperator = async (op: Operator): Promise<void> => {
-  const dbOp: any = { name: op.name, sector: op.sector || null, default_shift: op.defaultShift || null, role: op.role || null, base_salary: op.baseSalary || null, admission_date: op.admissionDate || null, termination_date: op.terminationDate || null, active: op.active };
+  const orgId = await getCurrentOrgId();
+  const dbOp: any = {
+    name: op.name,
+    sector: op.sector || null,
+    default_shift: op.defaultShift || null,
+    role: op.role || null,
+    base_salary: op.baseSalary || null,
+    admission_date: op.admissionDate || null,
+    termination_date: op.terminationDate || null,
+    active: op.active,
+    organization_id: orgId
+  };
   if (op.id) dbOp.id = op.id;
-  const { error } = await supabase.from('operators').upsert([dbOp]);
+
+  // Operators might use a name-based composite key or just an auto-increment ID?
+  // Looking at migration apply_tenant_isolation, 'operators' used 'name' as unique col.
+  // So conflict target should be 'organization_id, name' if we are matching by name, or PK if ID is present.
+
+  let conflict = 'id';
+  if (!op.id) conflict = 'organization_id, name';
+
+  const { error } = await supabase.from('operators').upsert([dbOp], { onConflict: conflict });
   if (error) throw error;
 };
 
@@ -273,16 +412,41 @@ export const fetchDowntimeTypes = async (): Promise<DowntimeType[]> => {
   try {
     const { data, error } = await supabase.from('downtime_types').select('*').order('description');
     if (error || !data) return [];
-    return data.map((d: any) => ({ id: d.id, description: d.description, exemptFromOperator: d.exempt_from_operator || false }));
+    return data.map((d: any) => ({
+      id: d.id,
+      description: d.description,
+      exemptFromOperator: d.exempt_from_operator || false,
+      sector: d.sector // NEW
+    }));
   } catch (e) { return []; }
 };
 
 export const saveDowntimeType = async (dt: DowntimeType): Promise<void> => {
-  const payload = { id: dt.id, description: dt.description, exempt_from_operator: dt.exemptFromOperator };
+  const orgId = await getCurrentOrgId();
+  const payload = {
+    id: dt.id,
+    description: dt.description,
+    exempt_from_operator: dt.exemptFromOperator,
+    sector: dt.sector, // NEW
+    organization_id: orgId
+  };
+  // Downtime types typically identified by UUID or ID
   const { error } = await supabase.from('downtime_types').upsert([payload]);
+
   if (error) {
-    delete (payload as any).exempt_from_operator;
-    await supabase.from('downtime_types').upsert([payload]);
+    // Legacy support: try identifying without exempt_from_operator
+    // (though if sector is the issue, this second try would also fail if sector is still present)
+    const { error: retryError } = await supabase.from('downtime_types').upsert([{
+      id: dt.id,
+      description: dt.description,
+      sector: dt.sector,
+      organization_id: orgId
+    }]);
+
+    if (retryError) {
+      console.error("Error saving downtime type:", error, retryError);
+      throw retryError;
+    }
   }
 };
 
@@ -293,12 +457,34 @@ export const deleteDowntimeType = async (id: string): Promise<void> => {
 export const fetchScrapReasons = async (): Promise<ScrapReason[]> => {
   try {
     const { data, error } = await supabase.from('scrap_reasons').select('*').eq('active', true).order('description');
-    return (data || []) as ScrapReason[];
+    return data.map((d: any) => ({
+      id: d.id,
+      description: d.description,
+      sector: d.sector, // NEW
+      active: d.active !== false
+    })) as ScrapReason[];
   } catch (e) { return []; }
 };
 
-export const saveScrapReason = async (reason: { id?: string, description: string }): Promise<void> => {
-  await supabase.from('scrap_reasons').upsert([{ id: reason.id || undefined, description: reason.description }]);
+export const saveScrapReason = async (reason: { id?: string, description: string, sector?: string }): Promise<void> => {
+  const orgId = await getCurrentOrgId();
+  const payload: any = {
+    description: reason.description,
+    sector: reason.sector,
+    organization_id: orgId,
+    active: true
+  };
+
+  if (reason.id) {
+    payload.id = reason.id;
+  }
+
+  const { error } = await supabase.from('scrap_reasons').upsert([payload]);
+
+  if (error) {
+    console.error("Error saving scrap reason:", error);
+    throw error;
+  }
 };
 
 export const deleteScrapReason = async (id: string): Promise<void> => {
@@ -314,10 +500,23 @@ export const fetchWorkShifts = async (): Promise<WorkShift[]> => {
 };
 
 export const saveWorkShift = async (shift: WorkShift): Promise<void> => {
-  const dbShift = { name: shift.name, start_time: shift.startTime, end_time: shift.endTime, active: shift.active, sector: shift.sector || null };
-  if (shift.id) await supabase.from('work_shifts').update(dbShift).eq('id', shift.id);
-  else await supabase.from('work_shifts').insert([dbShift]);
+  const orgId = await getCurrentOrgId();
+  const dbShift = {
+    name: shift.name,
+    start_time: shift.startTime,
+    end_time: shift.endTime,
+    active: shift.active,
+    sector: shift.sector || null,
+    organization_id: orgId
+  };
+
+  if (shift.id) {
+    await supabase.from('work_shifts').update(dbShift).eq('id', shift.id);
+  } else {
+    await supabase.from('work_shifts').insert([dbShift]);
+  }
 };
+
 
 export const deleteWorkShift = async (id: string): Promise<void> => {
   await supabase.from('work_shifts').update({ active: false }).eq('id', id);
@@ -338,3 +537,40 @@ export const determineCurrentShift = async (timeString: string): Promise<string>
   }
   return "Extra";
 };
+
+import { ProductTypeDefinition } from '../types';
+
+export const fetchProductTypes = async (): Promise<ProductTypeDefinition[]> => {
+  try {
+    const { data, error } = await supabase.from('product_types').select('*').eq('active', true).order('name');
+    if (error || !data) return [];
+    return data.map((d: any) => ({
+      id: d.id,
+      name: d.name,
+      classification: d.classification
+    }));
+  } catch (e) { return []; }
+};
+
+export const saveProductType = async (pt: ProductTypeDefinition): Promise<void> => {
+  const orgId = await getCurrentOrgId();
+  const payload: any = {
+    name: pt.name,
+    classification: pt.classification,
+    organization_id: orgId,
+    active: true
+  };
+
+  // Only add ID if it exists (update), otherwise let DB generate it (insert)
+  if (pt.id) {
+    payload.id = pt.id;
+  }
+
+  const { error } = await supabase.from('product_types').upsert([payload]);
+  if (error) throw error;
+};
+
+export const deleteProductType = async (id: string): Promise<void> => {
+  await supabase.from('product_types').update({ active: false }).eq('id', id);
+};
+

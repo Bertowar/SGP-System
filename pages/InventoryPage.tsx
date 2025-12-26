@@ -83,7 +83,7 @@ const InventoryPage: React.FC = () => {
     const [trxNote, setTrxNote] = useState('');
     const [isTrxSubmitting, setIsTrxSubmitting] = useState(false);
 
-    useEffect(() => { loadData(); }, []);
+    useEffect(() => { loadData(); }, [user?.organizationId]);
 
     // ... (rest of code)
 

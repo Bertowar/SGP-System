@@ -6,37 +6,40 @@ import { ClipboardList, Plus, Calendar, User, Package, Trash2, Edit, Save, X, Se
 import { Input, Textarea } from '../components/Input';
 import { ProductSelect } from '../components/ProductSelect';
 
+import { useAuth } from '../contexts/AuthContext';
+
 const ProductionPlanPage: React.FC = () => {
+    const { user } = useAuth();
     const [orders, setOrders] = useState<ProductionOrder[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
     const [machines, setMachines] = useState<Machine[]>([]);
     const [settings, setSettings] = useState<AppSettings | null>(null);
     const [loading, setLoading] = useState(true);
     const [filterStatus, setFilterStatus] = useState<string>('ALL');
-    
+
     // Modal
     const [modalOpen, setModalOpen] = useState(false);
     const [editingOrder, setEditingOrder] = useState<Partial<ProductionOrder>>({});
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Mix/Formulation State (for Extrusion OPs) - Stored as % in OP
-    const [mixItems, setMixItems] = useState<{type: string, subType: string, qty: string}[]>([
-        {type: 'FLAKE', subType: 'CRISTAL', qty: ''},
-        {type: 'FLAKE', subType: 'BRANCO', qty: ''},
-        {type: '', subType: '', qty: ''},
-        {type: '', subType: '', qty: ''}
+    const [mixItems, setMixItems] = useState<{ type: string, subType: string, qty: string }[]>([
+        { type: 'FLAKE', subType: 'CRISTAL', qty: '' },
+        { type: 'FLAKE', subType: 'BRANCO', qty: '' },
+        { type: '', subType: '', qty: '' },
+        { type: '', subType: '', qty: '' }
     ]);
 
     // Calculation State for UI feedback
     const [calcInfo, setCalcInfo] = useState<{ hours: number, shifts: number, days: number, rateUsed: number, source: string } | null>(null);
 
-    useEffect(() => { loadData(); }, []);
+    useEffect(() => { loadData(); }, [user?.organizationId]);
 
     const loadData = async () => {
         setLoading(true);
         const [o, p, m, s] = await Promise.all([
-            fetchProductionOrders(), 
-            fetchProducts(), 
+            fetchProductionOrders(),
+            fetchProducts(),
             fetchMachines(),
             fetchSettings()
         ]);
@@ -57,7 +60,7 @@ const ProductionPlanPage: React.FC = () => {
 
         const product = products.find(p => p.codigo === editingOrder.productCode);
         const machine = machines.find(m => m.code === editingOrder.machineId);
-        
+
         let capacityPerHour = 0;
         let rateSource = '';
 
@@ -69,7 +72,7 @@ const ProductionPlanPage: React.FC = () => {
         if (isExtrusion) {
             capacityPerHour = Number(machine?.productionCapacity) || 0;
             rateSource = 'Capacidade Máquina (Kg/h)';
-        } 
+        }
         // 2. Termoformagem (e padrão): Usa Meta do Produto (un/h)
         else {
             capacityPerHour = Number(product?.itemsPerHour) || 0;
@@ -80,13 +83,13 @@ const ProductionPlanPage: React.FC = () => {
             const qty = Number(editingOrder.targetQuantity);
             const totalHours = qty / capacityPerHour;
             const shiftHours = Number(settings?.shiftHours) || 8.8; // Default from settings or fallback
-            
+
             // Fórmula solicitada: Dias = Horas Necessárias / HorasPorTurno
             // Aqui tratamos "Dias" como a quantidade de turnos de trabalho necessários.
             const totalShifts = totalHours / shiftHours;
-            
+
             // Arredonda para cima para definir dias de calendário (mínimo 0 se qtd for 0)
-            const daysToComplete = Math.ceil(totalShifts); 
+            const daysToComplete = Math.ceil(totalShifts);
 
             setCalcInfo({
                 hours: parseFloat(totalHours.toFixed(1)),
@@ -103,7 +106,7 @@ const ProductionPlanPage: React.FC = () => {
             const today = new Date();
             const targetDate = new Date(today);
             targetDate.setDate(today.getDate() + daysToComplete);
-            
+
             // Correctly format to YYYY-MM-DD in local time
             const offset = targetDate.getTimezoneOffset() * 60000;
             const localDateString = (new Date(targetDate.getTime() - offset)).toISOString().slice(0, 10);
@@ -127,10 +130,10 @@ const ProductionPlanPage: React.FC = () => {
                 setMixItems(order.metaData.extrusion_mix);
             } else {
                 setMixItems([
-                    {type: 'FLAKE', subType: 'CRISTAL', qty: ''},
-                    {type: 'FLAKE', subType: 'BRANCO', qty: ''},
-                    {type: '', subType: '', qty: ''},
-                    {type: '', subType: '', qty: ''}
+                    { type: 'FLAKE', subType: 'CRISTAL', qty: '' },
+                    { type: 'FLAKE', subType: 'BRANCO', qty: '' },
+                    { type: '', subType: '', qty: '' },
+                    { type: '', subType: '', qty: '' }
                 ]);
             }
         } else {
@@ -147,10 +150,10 @@ const ProductionPlanPage: React.FC = () => {
                 deliveryDate: todayString
             });
             setMixItems([
-                {type: 'FLAKE', subType: 'CRISTAL', qty: ''},
-                {type: 'FLAKE', subType: 'BRANCO', qty: ''},
-                {type: '', subType: '', qty: ''},
-                {type: '', subType: '', qty: ''}
+                { type: 'FLAKE', subType: 'CRISTAL', qty: '' },
+                { type: 'FLAKE', subType: 'BRANCO', qty: '' },
+                { type: '', subType: '', qty: '' },
+                { type: '', subType: '', qty: '' }
             ]);
         }
         setModalOpen(true);
@@ -164,7 +167,7 @@ const ProductionPlanPage: React.FC = () => {
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!editingOrder.id || !editingOrder.productCode || !editingOrder.targetQuantity) return;
-        
+
         // VALIDATION: Mix must be 100% if it's Extrusion
         const isExtrusion = isExtrusionContext();
         if (isExtrusion) {
@@ -210,7 +213,7 @@ const ProductionPlanPage: React.FC = () => {
     };
 
     const getStatusColor = (status?: string) => {
-        switch(status) {
+        switch (status) {
             case 'PLANNED': return 'bg-slate-100 text-slate-600 border-slate-200';
             case 'IN_PROGRESS': return 'bg-blue-100 text-blue-700 border-blue-200';
             case 'COMPLETED': return 'bg-green-100 text-green-700 border-green-200';
@@ -220,7 +223,7 @@ const ProductionPlanPage: React.FC = () => {
     };
 
     const getPriorityBadge = (p?: string) => {
-        switch(p) {
+        switch (p) {
             case 'URGENT': return <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded">URGENTE</span>;
             case 'HIGH': return <span className="bg-orange-100 text-orange-700 text-[10px] font-bold px-2 py-0.5 rounded">ALTA</span>;
             default: return null;
@@ -258,19 +261,19 @@ const ProductionPlanPage: React.FC = () => {
         if (!editingOrder.productCode) return false;
         const product = products.find(p => p.codigo === editingOrder.productCode);
         const machine = machines.find(m => m.code === editingOrder.machineId);
-        
+
         // 1. Check by Product Type
         if (product?.type === 'INTERMEDIATE') return true;
-        
+
         // 2. Check by Selected Machine Sector
         if (machine?.sector && machine.sector.toLowerCase().includes('extru')) return true;
-        
+
         // 3. NEW: Check by Compatible Machines (Implicit Context)
         // Helps when creating new OP without machine selected yet
         if (product?.compatibleMachines && product.compatibleMachines.length > 0) {
-             const linkedMachines = machines.filter(m => product.compatibleMachines!.includes(m.code));
-             const hasExtrusionLink = linkedMachines.some(m => m.sector && m.sector.toLowerCase().includes('extru'));
-             if (hasExtrusionLink) return true;
+            const linkedMachines = machines.filter(m => product.compatibleMachines!.includes(m.code));
+            const hasExtrusionLink = linkedMachines.some(m => m.sector && m.sector.toLowerCase().includes('extru'));
+            if (hasExtrusionLink) return true;
         }
 
         return false;
@@ -309,11 +312,10 @@ const ProductionPlanPage: React.FC = () => {
                     <button
                         key={status}
                         onClick={() => setFilterStatus(status)}
-                        className={`px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
-                            filterStatus === status 
-                            ? 'bg-slate-800 text-white shadow-md' 
-                            : 'bg-white text-slate-500 hover:bg-slate-50 border border-slate-200'
-                        }`}
+                        className={`px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${filterStatus === status
+                                ? 'bg-slate-800 text-white shadow-md'
+                                : 'bg-white text-slate-500 hover:bg-slate-50 border border-slate-200'
+                            }`}
                     >
                         {status === 'ALL' ? 'Todas' : status === 'PLANNED' ? 'Planejadas' : status === 'IN_PROGRESS' ? 'Em Andamento' : status === 'COMPLETED' ? 'Concluídas' : 'Canceladas'}
                     </button>
@@ -327,14 +329,13 @@ const ProductionPlanPage: React.FC = () => {
                         Nenhuma ordem encontrada.
                     </div>
                 )}
-                
+
                 {filteredOrders.map(order => (
                     <div key={order.id} className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:shadow-md transition-shadow relative overflow-hidden group">
-                        <div className={`absolute top-0 left-0 w-1 h-full ${
-                            order.status === 'COMPLETED' ? 'bg-green-500' :
-                            order.status === 'IN_PROGRESS' ? 'bg-blue-500' :
-                            order.priority === 'URGENT' ? 'bg-red-500' : 'bg-slate-300'
-                        }`}></div>
+                        <div className={`absolute top-0 left-0 w-1 h-full ${order.status === 'COMPLETED' ? 'bg-green-500' :
+                                order.status === 'IN_PROGRESS' ? 'bg-blue-500' :
+                                    order.priority === 'URGENT' ? 'bg-red-500' : 'bg-slate-300'
+                            }`}></div>
 
                         <div className="flex justify-between items-start mb-3 pl-2">
                             <div>
@@ -344,23 +345,23 @@ const ProductionPlanPage: React.FC = () => {
                                 </div>
                                 <h3 className="font-bold text-slate-800 text-lg mt-1">{order.product?.produto || `Prod ${order.productCode}`}</h3>
                             </div>
-                            
+
                             <div className="flex gap-2">
-                                <button onClick={() => handleOpenModal(order)} className="p-1.5 bg-slate-50 rounded text-slate-500 hover:text-brand-600 hover:bg-slate-100" title="Editar"><Edit size={16}/></button>
-                                <button onClick={() => handleDelete(order.id)} className="p-1.5 bg-red-50 rounded text-red-400 hover:text-red-600 hover:bg-red-100" title="Excluir"><Trash2 size={16}/></button>
+                                <button onClick={() => handleOpenModal(order)} className="p-1.5 bg-slate-50 rounded text-slate-500 hover:text-brand-600 hover:bg-slate-100" title="Editar"><Edit size={16} /></button>
+                                <button onClick={() => handleDelete(order.id)} className="p-1.5 bg-red-50 rounded text-red-400 hover:text-red-600 hover:bg-red-100" title="Excluir"><Trash2 size={16} /></button>
                             </div>
                         </div>
 
                         <div className="pl-2 space-y-2 mb-4">
                             <div className="flex justify-between text-sm text-slate-600">
-                                <span className="flex items-center"><User size={14} className="mr-1 opacity-50"/> {order.customerName || 'Interno'}</span>
+                                <span className="flex items-center"><User size={14} className="mr-1 opacity-50" /> {order.customerName || 'Interno'}</span>
                                 <span className="flex items-center text-xs font-bold bg-slate-50 px-2 py-0.5 rounded border border-slate-200" title="Previsão de Término">
-                                    <Calendar size={12} className="mr-1 opacity-50"/> {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : 'N/D'}
+                                    <Calendar size={12} className="mr-1 opacity-50" /> {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : 'N/D'}
                                 </span>
                             </div>
                             {order.machineId && (
                                 <div className="text-xs text-slate-500 bg-slate-50 p-1 rounded w-fit flex items-center">
-                                    <Clock size={12} className="mr-1"/> Máquina: <b>{order.machineId}</b>
+                                    <Clock size={12} className="mr-1" /> Máquina: <b>{order.machineId}</b>
                                 </div>
                             )}
                         </div>
@@ -372,10 +373,9 @@ const ProductionPlanPage: React.FC = () => {
                                 <span>{order.producedQuantity || 0} / {order.targetQuantity}</span>
                             </div>
                             <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                                <div 
-                                    className={`h-full rounded-full transition-all duration-500 ${
-                                        (order.producedQuantity || 0) >= order.targetQuantity ? 'bg-green-500' : 'bg-brand-500'
-                                    }`}
+                                <div
+                                    className={`h-full rounded-full transition-all duration-500 ${(order.producedQuantity || 0) >= order.targetQuantity ? 'bg-green-500' : 'bg-brand-500'
+                                        }`}
                                     style={{ width: `${getProgress(order.producedQuantity, order.targetQuantity)}%` }}
                                 ></div>
                             </div>
@@ -388,7 +388,7 @@ const ProductionPlanPage: React.FC = () => {
             {modalOpen && (
                 <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4 backdrop-blur-sm animate-in zoom-in-95">
                     <div className="bg-white rounded-xl w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-                        
+
                         {/* HEADER MODAL */}
                         <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
                             <div className="flex flex-col">
@@ -399,10 +399,10 @@ const ProductionPlanPage: React.FC = () => {
                                 <div className="flex items-center gap-3 mt-1">
                                     <span className="text-xs font-mono font-bold bg-white px-2 py-0.5 rounded border border-slate-300 text-slate-600 shadow-sm">{editingOrder.id}</span>
                                     <div className="h-4 w-px bg-slate-300"></div>
-                                    <select 
+                                    <select
                                         className="text-xs bg-transparent font-bold text-brand-700 outline-none uppercase cursor-pointer hover:text-brand-900"
                                         value={editingOrder.status}
-                                        onChange={e => setEditingOrder({...editingOrder, status: e.target.value as any})}
+                                        onChange={e => setEditingOrder({ ...editingOrder, status: e.target.value as any })}
                                     >
                                         <option value="PLANNED">Planejada</option>
                                         <option value="IN_PROGRESS">Em Andamento</option>
@@ -410,29 +410,29 @@ const ProductionPlanPage: React.FC = () => {
                                     </select>
                                 </div>
                             </div>
-                            <button onClick={() => setModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 hover:text-slate-600 transition-colors"><X size={24}/></button>
+                            <button onClick={() => setModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 hover:text-slate-600 transition-colors"><X size={24} /></button>
                         </div>
-                        
+
                         <div className="overflow-y-auto p-6 flex-1 space-y-8 bg-white">
                             <form id="op-form" onSubmit={handleSave} className="space-y-8">
-                                
+
                                 {/* SEÇÃO 1: O QUE PRODUZIR? */}
                                 <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
                                     <div className="md:col-span-7">
                                         <div className="mb-1 flex items-center gap-2">
-                                            <Package size={16} className="text-brand-600"/>
+                                            <Package size={16} className="text-brand-600" />
                                             <label className="text-sm font-bold text-slate-700">Produto</label>
                                         </div>
-                                        <ProductSelect 
-                                            products={products} 
-                                            value={editingOrder.productCode || null} 
-                                            onChange={(val) => setEditingOrder({...editingOrder, productCode: val || undefined})}
+                                        <ProductSelect
+                                            products={products}
+                                            value={editingOrder.productCode || null}
+                                            onChange={(val) => setEditingOrder({ ...editingOrder, productCode: val || undefined })}
                                         />
                                     </div>
                                     <div className="md:col-span-5">
                                         <div className="mb-2 flex items-center justify-between">
                                             <div className="flex items-center gap-2">
-                                                <Zap size={16} className="text-orange-500"/>
+                                                <Zap size={16} className="text-orange-500" />
                                                 <label className="text-sm font-bold text-slate-700">Máquina Preferencial</label>
                                             </div>
                                             {editingOrder.productCode && filteredMachinesForOrder.length > 0 && (
@@ -441,12 +441,11 @@ const ProductionPlanPage: React.FC = () => {
                                                 </span>
                                             )}
                                         </div>
-                                        <select 
-                                            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none transition-all h-[42px] font-medium text-sm ${
-                                                !editingOrder.productCode ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white border-slate-300 text-slate-800'
-                                            }`}
+                                        <select
+                                            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none transition-all h-[42px] font-medium text-sm ${!editingOrder.productCode ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white border-slate-300 text-slate-800'
+                                                }`}
                                             value={editingOrder.machineId || ''}
-                                            onChange={e => setEditingOrder({...editingOrder, machineId: e.target.value})}
+                                            onChange={e => setEditingOrder({ ...editingOrder, machineId: e.target.value })}
                                             disabled={!editingOrder.productCode}
                                         >
                                             <option value="">
@@ -465,22 +464,22 @@ const ProductionPlanPage: React.FC = () => {
                                 <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 relative overflow-hidden">
                                     {/* Decorative Background Icon */}
                                     <Calculator className="absolute -right-6 -bottom-6 text-slate-200/50 w-32 h-32 pointer-events-none" />
-                                    
+
                                     <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center border-b border-slate-200 pb-2">
                                         <Clock size={14} className="mr-2" /> Planejamento de Capacidade
                                     </h4>
-                                    
+
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative z-10">
                                         {/* Coluna 1: Quantidade */}
                                         <div className="flex flex-col">
                                             <label className="text-sm font-bold text-slate-700 mb-2">Quantidade Planejada</label>
-                                            <Input 
-                                                label="" 
-                                                type="number" 
-                                                value={editingOrder.targetQuantity} 
-                                                onChange={e => setEditingOrder({...editingOrder, targetQuantity: Number(e.target.value)})} 
-                                                required 
-                                                className="text-2xl font-bold text-slate-800 h-12 bg-white shadow-sm border-slate-300" 
+                                            <Input
+                                                label=""
+                                                type="number"
+                                                value={editingOrder.targetQuantity}
+                                                onChange={e => setEditingOrder({ ...editingOrder, targetQuantity: Number(e.target.value) })}
+                                                required
+                                                className="text-2xl font-bold text-slate-800 h-12 bg-white shadow-sm border-slate-300"
                                                 placeholder="0"
                                             />
                                         </div>
@@ -509,8 +508,8 @@ const ProductionPlanPage: React.FC = () => {
                                             ) : (
                                                 <div className="h-full flex items-center justify-center text-xs text-slate-400 bg-slate-100/50 rounded-lg border border-dashed border-slate-200 p-2 text-center flex-col">
                                                     <Info size={16} className="mb-1" />
-                                                    {editingOrder.targetQuantity 
-                                                        ? "Sem dados de meta/capacidade para cálculo." 
+                                                    {editingOrder.targetQuantity
+                                                        ? "Sem dados de meta/capacidade para cálculo."
                                                         : "Defina a quantidade para calcular."}
                                                 </div>
                                             )}
@@ -523,12 +522,12 @@ const ProductionPlanPage: React.FC = () => {
                                                 {calcInfo && <span className="text-[10px] text-green-600 font-bold bg-green-50 px-1.5 rounded">Calculado</span>}
                                             </label>
                                             <div className="relative">
-                                                <Input 
-                                                    label="" 
-                                                    type="date" 
-                                                    value={editingOrder.deliveryDate} 
-                                                    onChange={e => setEditingOrder({...editingOrder, deliveryDate: e.target.value})} 
-                                                    required 
+                                                <Input
+                                                    label=""
+                                                    type="date"
+                                                    value={editingOrder.deliveryDate}
+                                                    onChange={e => setEditingOrder({ ...editingOrder, deliveryDate: e.target.value })}
+                                                    required
                                                     className={`h-12 font-bold text-lg ${calcInfo ? 'bg-green-50/50 border-green-300 text-green-800 focus:ring-green-500' : 'bg-white'}`}
                                                 />
                                             </div>
@@ -540,10 +539,10 @@ const ProductionPlanPage: React.FC = () => {
                                 {isExtrusionContext() && (
                                     <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 animate-in fade-in">
                                         <div className="flex items-center gap-2 mb-4 text-blue-800 border-b border-blue-200 pb-2">
-                                            <FlaskConical size={18} className="text-blue-600"/> 
+                                            <FlaskConical size={18} className="text-blue-600" />
                                             <h3 className="font-bold text-sm uppercase tracking-wide">Receita de Mistura / Mix Padrão</h3>
                                         </div>
-                                        
+
                                         <div className="bg-white p-4 rounded-lg border border-blue-100 shadow-sm">
                                             <p className="text-xs text-slate-500 mb-4">
                                                 Defina a composição da receita em <b>Porcentagem (%)</b>. O total deve fechar em 100%.
@@ -563,27 +562,26 @@ const ProductionPlanPage: React.FC = () => {
                                                         <option value="AZUL">AZUL</option>
                                                     </select>
                                                     <div className="flex items-center w-28">
-                                                        <input 
-                                                            type="number" 
-                                                            step="0.1" 
-                                                            className="w-full px-2 py-1.5 text-xs border rounded text-right font-bold" 
-                                                            placeholder="0" 
-                                                            value={item.qty} 
-                                                            onChange={e => handleMixItemChange(idx, 'qty', e.target.value)} 
+                                                        <input
+                                                            type="number"
+                                                            step="0.1"
+                                                            className="w-full px-2 py-1.5 text-xs border rounded text-right font-bold"
+                                                            placeholder="0"
+                                                            value={item.qty}
+                                                            onChange={e => handleMixItemChange(idx, 'qty', e.target.value)}
                                                         />
                                                         <span className="text-[10px] ml-1 text-slate-400 font-bold">%</span>
                                                     </div>
                                                 </div>
                                             ))}
-                                            
+
                                             {/* Validation Footer */}
                                             <div className="mt-2 pt-2 border-t border-slate-100 flex justify-end items-center">
                                                 <span className="text-xs font-bold text-slate-500 mr-2">Total Receita:</span>
-                                                <span className={`text-sm font-bold px-2 py-0.5 rounded ${
-                                                    Math.abs(totalMixPercentage - 100) <= 0.1 
-                                                    ? 'bg-green-100 text-green-700' 
-                                                    : 'bg-red-100 text-red-700'
-                                                }`}>
+                                                <span className={`text-sm font-bold px-2 py-0.5 rounded ${Math.abs(totalMixPercentage - 100) <= 0.1
+                                                        ? 'bg-green-100 text-green-700'
+                                                        : 'bg-red-100 text-red-700'
+                                                    }`}>
                                                     {totalMixPercentage.toFixed(1)}%
                                                 </span>
                                             </div>
@@ -600,12 +598,11 @@ const ProductionPlanPage: React.FC = () => {
                                                 <button
                                                     key={p}
                                                     type="button"
-                                                    onClick={() => setEditingOrder({...editingOrder, priority: p as any})}
-                                                    className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${
-                                                        editingOrder.priority === p
-                                                        ? (p === 'URGENT' ? 'bg-red-600 text-white shadow-md' : p === 'HIGH' ? 'bg-orange-500 text-white shadow-md' : 'bg-white text-slate-800 shadow-md')
-                                                        : 'text-slate-500 hover:text-slate-700'
-                                                    }`}
+                                                    onClick={() => setEditingOrder({ ...editingOrder, priority: p as any })}
+                                                    className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${editingOrder.priority === p
+                                                            ? (p === 'URGENT' ? 'bg-red-600 text-white shadow-md' : p === 'HIGH' ? 'bg-orange-500 text-white shadow-md' : 'bg-white text-slate-800 shadow-md')
+                                                            : 'text-slate-500 hover:text-slate-700'
+                                                        }`}
                                                 >
                                                     {p === 'NORMAL' ? 'Normal' : p === 'HIGH' ? 'Alta' : 'URGENTE'}
                                                 </button>
@@ -613,10 +610,10 @@ const ProductionPlanPage: React.FC = () => {
                                         </div>
                                     </div>
                                     <div>
-                                        <Input label="Cliente (Opcional)" value={editingOrder.customerName || ''} onChange={e => setEditingOrder({...editingOrder, customerName: e.target.value})} placeholder="Nome do Cliente" />
+                                        <Input label="Cliente (Opcional)" value={editingOrder.customerName || ''} onChange={e => setEditingOrder({ ...editingOrder, customerName: e.target.value })} placeholder="Nome do Cliente" />
                                     </div>
                                     <div className="md:col-span-2">
-                                        <Textarea label="Observações / Instruções" value={editingOrder.notes || ''} onChange={e => setEditingOrder({...editingOrder, notes: e.target.value})} rows={2} placeholder="Detalhes específicos para a produção, lote de MP, etc..." />
+                                        <Textarea label="Observações / Instruções" value={editingOrder.notes || ''} onChange={e => setEditingOrder({ ...editingOrder, notes: e.target.value })} rows={2} placeholder="Detalhes específicos para a produção, lote de MP, etc..." />
                                     </div>
                                 </div>
 
@@ -626,8 +623,8 @@ const ProductionPlanPage: React.FC = () => {
                         {/* FOOTER */}
                         <div className="p-5 bg-slate-50 border-t border-slate-200 flex justify-end gap-3 shrink-0">
                             <button type="button" onClick={() => setModalOpen(false)} className="px-6 py-3 border border-slate-300 rounded-lg hover:bg-white font-bold text-slate-600 transition-colors">Cancelar</button>
-                            <button 
-                                type="submit" 
+                            <button
+                                type="submit"
                                 form="op-form"
                                 disabled={isSubmitting}
                                 className="px-8 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-bold flex items-center shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all disabled:opacity-70 disabled:transform-none"

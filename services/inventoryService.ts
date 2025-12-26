@@ -56,7 +56,7 @@ export const deleteMaterial = async (id: string): Promise<void> => {
     await supabase.from('raw_materials').delete().eq('id', id);
 };
 
-export const fetchBOM = async (productCode: number): Promise<ProductBOM[]> => {
+export const fetchBOM = async (productCode: string): Promise<ProductBOM[]> => {
     try {
         const { data, error } = await supabase.from('product_bom').select('*, material:raw_materials(*)').eq('product_code', productCode);
         if (error) return [];
@@ -166,7 +166,7 @@ export const processStockTransaction = async (trx: Omit<InventoryTransaction, 'i
     }
 };
 
-export const processStockDeduction = async (entry: { productCode?: number | null, qtyOK: number, id: string }): Promise<void> => {
+export const processStockDeduction = async (entry: { productCode?: string | null, qtyOK: number, id: string }): Promise<void> => {
     if (!entry.productCode || entry.qtyOK <= 0) return;
     const bomItems = await fetchBOM(entry.productCode);
     for (const item of bomItems) {

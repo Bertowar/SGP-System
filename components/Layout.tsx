@@ -18,7 +18,7 @@ type ModuleType = 'production' | 'inventory' | 'engineering' | 'logistics' | 'fi
 const Layout: React.FC<LayoutProps> = ({ children }) => {
     const location = useLocation();
     const navigate = useNavigate();
-    const { user, isAdmin, logout, debugSetRole } = useAuth();
+    const { user, isAdmin, logout, debugSetRole, realRole, currentOrg } = useAuth();
 
     const [unreadCount, setUnreadCount] = useState(0);
     const [isOnline, setIsOnline] = useState(true);
@@ -164,8 +164,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
             {/* 1. RAIL (Módulos) - Desktop Only */}
             <aside className={`hidden md:flex flex-col w-20 bg-slate-900 border-r border-slate-800 z-30 shadow-xl shrink-0 ${maintenanceMode ? 'mt-6' : ''}`}>
-                <div className="h-16 flex items-center justify-center border-b border-slate-800">
-                    <Box className="text-brand-500" size={28} />
+                <div className="h-16 flex items-center justify-center border-b border-slate-800 p-2">
+                    {currentOrg?.logo_url ? (
+                        <img
+                            src={currentOrg.logo_url}
+                            alt={currentOrg.name}
+                            className="w-10 h-10 object-contain rounded bg-white/5 p-0.5"
+                            title={currentOrg.name}
+                        />
+                    ) : (
+                        <Box className="text-brand-500" size={28} />
+                    )}
                 </div>
 
                 <div className="flex-1 flex flex-col gap-2 py-4 overflow-y-auto">
@@ -282,6 +291,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                         <div className="flex items-center space-x-2 bg-orange-50 border border-orange-200 text-orange-700 px-3 py-1.5 rounded-full shadow-sm">
                             <AlertTriangle size={14} className="animate-pulse" />
                             <span className="text-xs font-bold tracking-wide">Beta 1.0</span>
+                            {user?.organizationName && (
+                                <>
+                                    <span className="text-orange-300 mx-1">|</span>
+                                    <span className="text-xs font-bold uppercase truncate max-w-[150px]" title={user.organizationName}>
+                                        {user.organizationName}
+                                    </span>
+                                </>
+                            )}
                         </div>
                     </div>
 
@@ -348,8 +365,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                                             </button>
                                         </div>
 
-                                        {/* TROCA DE PAPEL (Super Admin) - SUBMENU ACCORDION */}
-                                        {user?.isSuperAdmin && (
+                                        {/* TROCA DE PAPEL (Super Admin ou Owner para Teste) - SUBMENU ACCORDION */}
+                                        {(user?.isSuperAdmin || user?.role === 'owner' || realRole === 'owner') && (
                                             <div className="border-b border-slate-100">
                                                 <button
                                                     onClick={() => setRoleMenuOpen(!roleMenuOpen)}

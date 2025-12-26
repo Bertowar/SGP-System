@@ -5,7 +5,10 @@ import { fetchSettings, saveSettings, fetchFieldDefinitions, saveFieldDefinition
 import { AppSettings, FieldDefinition } from '../types';
 import { Input } from '../components/Input';
 
+import { useAuth } from '../contexts/AuthContext';
+
 const SettingsPage: React.FC = () => {
+    const { user } = useAuth();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [msg, setMsg] = useState('');
@@ -29,7 +32,7 @@ const SettingsPage: React.FC = () => {
 
     useEffect(() => {
         loadData();
-    }, []);
+    }, [user?.organizationId]);
 
     const loadData = async () => {
         try {

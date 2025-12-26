@@ -40,7 +40,7 @@ serve(async (req) => {
         }
 
         // 2. Parse Body
-        const { name, slug, plan, owner_email, owner_name } = await req.json()
+        const { name, slug, plan, owner_email, owner_name, logo_url } = await req.json()
 
         if (!name || !slug || !owner_email) {
             throw new Error('Name, slug, and owner_email are required.')
@@ -60,7 +60,8 @@ serve(async (req) => {
                 name,
                 slug,
                 plan: plan || 'free',
-                owner_id: user.id // Temporary owner, will be updated or just reference creator
+                owner_id: user.id, // Temporary owner, will be updated or just reference creator
+                logo_url: logo_url || null
             })
             .select()
             .single()

@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { MemoryRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import EntryForm from './pages/EntryForm';
@@ -76,7 +76,7 @@ function App() {
   return (
     <GlobalErrorBoundary>
       <AuthProvider>
-        <MemoryRouter>
+        <BrowserRouter>
           <Routes>
             <Route path="/login" element={
               <PublicOnlyRoute>
@@ -219,7 +219,7 @@ function App() {
 
             <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>
-        </MemoryRouter>
+        </BrowserRouter>
       </AuthProvider>
     </GlobalErrorBoundary>
   );

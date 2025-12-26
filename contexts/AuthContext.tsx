@@ -1,12 +1,13 @@
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { getUserProfile, signIn as supabaseSignIn, signOut as supabaseSignOut } from '../services/auth';
-import { UserProfile } from '../types';
+import { UserProfile, Organization } from '../types';
 import { Session } from '@supabase/supabase-js';
 
 interface AuthContextType {
   user: UserProfile | null;
+  currentOrg: Organization | null;
   session: Session | null;
   loading: boolean;
   isAdmin: boolean;
@@ -14,10 +15,13 @@ interface AuthContextType {
   logout: () => Promise<void>;
   debugSetRole: (role: string) => void;
   cleanStorage: () => void;
+  realRole: UserProfile['role'] | null;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
+  currentOrg: null,
   session: null,
   loading: true,
   isAdmin: false,
@@ -25,98 +29,132 @@ const AuthContext = createContext<AuthContextType>({
   logout: async () => { },
   debugSetRole: () => { },
   cleanStorage: () => { },
+  realRole: null,
+  refreshProfile: async () => { },
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [currentOrg, setCurrentOrg] = useState<Organization | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [realRole, setRealRole] = useState<UserProfile['role'] | null>(null);
 
-  // --- MODO DESENVOLVIMENTO (Auth Bypass) ---
-  /*
-  useEffect(() => {
-    console.warn("⚠️ MODO DEV ATIVO: Login automático como Admin.");
+  // Ref to track the last fetched user ID to avoid redundant fetches
+  const lastFetchedUserId = useRef<string | null>(null);
 
-    const devUser: UserProfile = {
-      id: 'dev-admin-id',
-      email: 'dev@admin.com',
-      role: 'admin',
-      fullName: 'Desenvolvedor (Admin)',
-      organizationId: 'org-dev-001', // Mock Org
-      avatarUrl: 'https://ui-avatars.com/api/?name=Admin+Dev',
-      isSuperAdmin: true // Enable Super Admin for Dev Mode checking
-    };
-
-    // Simula delay para não quebrar UI que depende de loading state transitions
-    setTimeout(() => {
-      setUser(devUser);
-      setSession({
-        access_token: 'fake-token',
-        token_type: 'bearer',
-        user: { id: 'dev-admin-id', email: 'dev@admin.com', aud: 'authenticated' }
-      } as Session);
-      setLoading(false);
-    }, 100);
-  }, []);
-  */
-
-  // AUTENTICAÇÃO REAL
   useEffect(() => {
     let isMounted = true;
-    const init = async () => {
+
+    const fetchProfile = async (currentSession: Session | null) => {
+      if (!currentSession?.user) {
+        if (isMounted) {
+          setUser(null);
+          setCurrentOrg(null);
+          setRealRole(null);
+          setLoading(false);
+          lastFetchedUserId.current = null;
+        }
+        return;
+      }
+
+      // Optimization: access token change doesn't necessarily mean profile change
+      // But for safety in this refactor, we just check if ID changed or if we don't have a user yet
+      if (lastFetchedUserId.current === currentSession.user.id && user) {
+        if (isMounted) setLoading(false);
+        return;
+      }
+
       try {
-        console.log("AuthContext: Checking session...");
-        const { data: { session } } = await supabase.auth.getSession();
-        console.log("AuthContext: Session found?", !!session);
+        console.log("AuthContext: Fetching profile for", currentSession.user.email);
+        const profile = await getUserProfile(currentSession.user.id, currentSession.user.email);
 
         if (isMounted) {
-          setSession(session);
-          if (session?.user) {
-            console.log("AuthContext: Fetching profile for", session.user.email);
-            const profile = await getUserProfile(session.user.id);
-            console.log("AuthContext: Profile result:", profile);
-            if (isMounted) setUser(profile);
+          if (profile) {
+            setUser(profile);
+            setRealRole(profile.role);
+            lastFetchedUserId.current = currentSession.user.id;
+
+            // Fetch Organization Details
+            if (profile.organizationId) {
+              const { data: org, error: orgError } = await supabase
+                .from('organizations')
+                .select('*')
+                .eq('id', profile.organizationId)
+                .single();
+
+              if (org && !orgError) {
+                setCurrentOrg(org as Organization);
+              }
+            }
+
+          } else {
+            console.warn("AuthContext: Profile not found for authenticated user.");
+            setUser(null);
+            setCurrentOrg(null);
           }
         }
-      } catch (e) {
-        console.error("Auth init error", e);
+      } catch (error) {
+        console.error("AuthContext: Error fetching profile", error);
+        if (isMounted) {
+          setUser(null);
+          setCurrentOrg(null);
+        }
       } finally {
         if (isMounted) setLoading(false);
       }
     };
-    init();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (!isMounted) return;
-      setSession(session);
-      if (session?.user) {
-        const profile = await getUserProfile(session.user.id);
-        if (isMounted) setUser(profile);
-      } else {
-        if (isMounted) setUser(null);
+    // 1. Initial Session Check (Get existing session from storage)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (isMounted) {
+        setSession(session);
+        fetchProfile(session);
       }
-      if (isMounted) setLoading(false);
     });
 
-    const timer = setTimeout(() => {
-      if (isMounted) setLoading(false);
-    }, 10000);
+    // 2. Subscribe to Auth Changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      console.log(`AuthContext: Auth event ${_event}`);
+      if (isMounted) {
+        setSession(newSession);
+        // If event is SIGN_OUT, we can clear immediately
+        if (_event === 'SIGNED_OUT') {
+          setUser(null);
+          setCurrentOrg(null);
+          setRealRole(null);
+          lastFetchedUserId.current = null;
+          setLoading(false);
+        } else {
+          fetchProfile(newSession);
+        }
+      }
+    });
 
     return () => {
       isMounted = false;
-      clearTimeout(timer);
       subscription.unsubscribe();
     };
   }, []);
 
   const manualLogin = async (email: string, pass: string) => {
     await supabaseSignIn(email, pass);
+    // onAuthStateChange handles the rest
   };
 
   const logout = async () => {
-    setUser(null);
-    setSession(null);
-    await supabaseSignOut();
+    try {
+      await supabaseSignOut();
+      // State updates handled by onAuthStateChange
+    } catch (error) {
+      console.error("Logout error:", error);
+      // Force local cleanup if server logout fails
+      setUser(null);
+      setCurrentOrg(null);
+      setSession(null);
+      localStorage.removeItem('sb-ojnrtqejmnssmkgywufa-auth-token'); // Clear Supabase standard token
+      localStorage.removeItem('sgp-auth-token'); // Clear our custom key if used
+    }
   };
 
   const debugSetRole = (role: string) => {
@@ -126,22 +164,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const refreshProfile = async () => {
+    if (session?.user) {
+      setLoading(true);
+      // Force fetch by ignoring lastFetchedUserId temporarily
+      const profile = await getUserProfile(session.user.id, session.user.email);
+      if (profile) {
+        setUser(profile);
+        setRealRole(profile.role);
+        lastFetchedUserId.current = session.user.id;
+
+        if (profile.organizationId) {
+          const { data: org } = await supabase
+            .from('organizations')
+            .select('*')
+            .eq('id', profile.organizationId)
+            .single();
+          if (org) setCurrentOrg(org as Organization);
+        }
+      }
+      setLoading(false);
+    }
+  };
+
   const cleanStorage = () => {
-    localStorage.removeItem('sgp-auth-token');
-    localStorage.removeItem('sb-ojnrtqejmnssmkgywufa-auth-token');
     localStorage.clear();
+    sessionStorage.clear();
     window.location.reload();
   };
 
   const value = {
     user,
+    currentOrg,
     session,
     loading,
-    isAdmin: user?.role === 'admin' || user?.role === 'manager', // Backwards compatibility helper
+    isAdmin: user?.role === 'admin' || user?.role === 'manager',
     manualLogin,
     logout,
     debugSetRole,
-    cleanStorage
+    cleanStorage,
+    realRole,
+    refreshProfile
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

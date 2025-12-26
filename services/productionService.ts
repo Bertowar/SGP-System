@@ -84,6 +84,9 @@ const mapAlertToDB = (alert: AppAlert) => ({
 
 // --- Production Entries (CORE) ---
 
+
+import { getCurrentOrgId } from './auth';
+
 export const saveEntry = async (entry: ProductionEntry): Promise<void> => {
     if (entry.operatorId === SYSTEM_OPERATOR_ID) {
         const { data } = await supabase.from('operators').select('id').eq('id', SYSTEM_OPERATOR_ID).single();
@@ -91,10 +94,19 @@ export const saveEntry = async (entry: ProductionEntry): Promise<void> => {
             await supabase.from('operators').insert([{ id: SYSTEM_OPERATOR_ID, name: 'SISTEMA (Inativo)' }]);
         }
     }
-    const { error } = await supabase.from('production_entries').upsert([mapEntryToDB(entry)]);
+
+    // Explicitly add org_id if possible
+    const orgId = await getCurrentOrgId();
+    const payload = mapEntryToDB(entry);
+    if (orgId) {
+        (payload as any).organization_id = orgId;
+    }
+
+    const { error } = await supabase.from('production_entries').upsert([payload]);
     if (error) throw error;
 };
 
+// ... handleQualitySideEffects remains same ...
 const handleQualitySideEffects = async (entry: ProductionEntry): Promise<void> => {
     const isDraft = entry.metaData?.is_draft === true;
     if (isDraft || entry.qtyDefect <= 0) return;
@@ -153,6 +165,12 @@ export const registerProductionEntry = async (entry: ProductionEntry, isEditMode
     const shouldDeductStock = (!isEditMode && !isDraft) || (isEditMode && !isDraft && wasDraft);
 
     const dbEntry = mapEntryToDB(entry);
+
+    // Inject OrgID explicitly
+    const orgId = await getCurrentOrgId();
+    if (orgId) {
+        (dbEntry as any).organization_id = orgId;
+    }
 
     if (entry.operatorId === SYSTEM_OPERATOR_ID) {
         const { data } = await supabase.from('operators').select('id').eq('id', SYSTEM_OPERATOR_ID).single();
@@ -217,6 +235,7 @@ export const registerProductionEntry = async (entry: ProductionEntry, isEditMode
 
     await handleQualitySideEffects(entry);
 };
+
 
 export const fetchEntries = async (): Promise<ProductionEntry[]> => {
     try {

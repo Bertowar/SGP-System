@@ -1,8 +1,9 @@
-
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Box, Lock, Mail, Loader2, Info, Eye, EyeOff } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { supabase } from '../services/supabaseClient'; // NEW IMPORT
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -14,6 +15,7 @@ const LoginPage: React.FC = () => {
 
   const { manualLogin } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     const savedEmail = localStorage.getItem('pplast_saved_email');
@@ -29,31 +31,20 @@ const LoginPage: React.FC = () => {
     setError('');
 
     try {
-      // Handle Remember Me logic first
-      if (rememberMe) {
-        localStorage.setItem('pplast_saved_email', email);
-      } else {
-        localStorage.removeItem('pplast_saved_email');
-      }
+      await manualLogin(email, password);
 
+      // Success is implicit if no error is thrown.
+      // Navigation is handled by the AuthContext state change or useEffect in many apps, 
+      // but here we can just wait for the user state to update or basic navigation.
+      // However, usually manualLogin triggers onAuthStateChange in AuthContext.
 
-      // Create a timeout promise
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Tempo limite excedido. O servidor pode estar inicializando ("cold start").')), 45000)
-      );
-
-      // Race against the login attempt
-      await Promise.race([
-        manualLogin(email, password),
-        timeoutPromise
-      ]);
-
-      // Success
-      console.log('Login successful, navigating...');
+      console.log('Login successful');
       navigate('/');
+
     } catch (err: any) {
       console.error('Login error:', err);
-      setError(err.message || 'Erro ao conectar.');
+      // Supabase errors usually have a 'message' field
+      setError(err.message || 'Erro ao conectar ao servidor.');
       setLocalLoading(false);
     }
   };

@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-    fetchProducts, fetchOperators, fetchMachines, fetchDowntimeTypes, fetchMaterials, fetchScrapReasons, fetchProductCategories, fetchSectors, fetchWorkShifts,
-    saveProduct, deleteProduct, saveMachine, deleteMachine, saveOperator, deleteOperator, saveDowntimeType, deleteDowntimeType, saveScrapReason, deleteScrapReason, saveProductCategory, deleteProductCategory, saveSector, deleteSector, saveWorkShift, deleteWorkShift, formatError
+    fetchProducts, fetchOperators, fetchMachines, fetchDowntimeTypes, fetchMaterials, fetchScrapReasons, fetchProductCategories, fetchSectors, fetchWorkShifts, fetchProductTypes,
+    saveProduct, deleteProduct, deleteMachine, saveOperator, deleteOperator, saveDowntimeType, deleteDowntimeType, saveScrapReason, deleteScrapReason, saveProductCategory, deleteProductCategory, saveSector, deleteSector, saveWorkShift, deleteWorkShift, saveProductType, deleteProductType, formatError
 } from '../services/storage';
+import { saveMachine } from '../services/masterDataService';
 import { fetchBOM } from '../services/inventoryService'; // NEW: Import BOM service
-import { Product, Operator, Machine, DowntimeType, MachineSector, RawMaterial, ScrapReason, ProductCategory, Sector, WorkShift } from '../types';
-import { Trash2, Edit, Save, Package, Users, Cpu, Timer, AlertCircle, X, Plus, Loader2, AlertTriangle, Layers, Grid, Clock, CheckSquare, RefreshCw } from 'lucide-react'; // Added RefreshCw
+import { Product, Operator, Machine, DowntimeType, MachineSector, RawMaterial, ScrapReason, ProductCategory, Sector, WorkShift, ProductTypeDefinition } from '../types';
+import { Trash2, Edit, Save, Package, Users, Cpu, Timer, AlertCircle, X, Plus, Loader2, AlertTriangle, Layers, Grid, Clock, CheckSquare, RefreshCw, Info, CheckCircle, Boxes, Lightbulb } from 'lucide-react'; // Added Boxes and Lightbulb
 import { Input } from '../components/Input';
 
 // --- Interfaces ---
@@ -163,13 +164,40 @@ const DeleteConfirmationModal: React.FC<DeleteModalProps> = ({ isOpen, onClose, 
 // --- Inline Forms ---
 
 const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ onSave, initialData }) => {
-    const [code, setCode] = useState(initialData?.codigo?.toString() || '');
+
+    // Product Form State
+    const [code, setCode] = useState(initialData?.codigo || '');
     const [name, setName] = useState(initialData?.produto || '');
     const [desc, setDesc] = useState(initialData?.descricao || '');
-    const [weight, setWeight] = useState(initialData?.pesoLiquido?.toString() || '');
-    const [cost, setCost] = useState(initialData?.custoUnit?.toString() || '');
-    const [category, setCategory] = useState(initialData?.category || 'ARTICULADO');
-    const [type, setType] = useState<'FINISHED' | 'INTERMEDIATE' | 'COMPONENT'>(initialData?.type || 'FINISHED');
+    const [weight, setWeight] = useState(initialData?.pesoLiquido?.toString() || '0');
+    const [cost, setCost] = useState(initialData?.custoUnit?.toString() || '0');
+    const [category, setCategory] = useState(initialData?.category || ''); // RESTORED
+
+    // NEW: Product Type Logic
+    const [productTypes, setProductTypes] = useState<ProductTypeDefinition[]>([]);
+    const [selectedTypeId, setSelectedTypeId] = useState(initialData?.productTypeId || '');
+    const [type, setType] = useState<'FINISHED' | 'INTERMEDIATE' | 'COMPONENT' | ''>(initialData?.type || '');
+
+    useEffect(() => {
+        fetchProductTypes().then(setProductTypes);
+    }, []);
+
+    // Handle Type Change
+    const handleTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const typeId = e.target.value;
+        setSelectedTypeId(typeId);
+
+        const selectedDef = productTypes.find(pt => pt.id === typeId);
+        if (selectedDef) {
+            setType(selectedDef.classification);
+            // Auto set unit based on classification if needed, or leave it to user
+            if (selectedDef.classification === 'INTERMEDIATE') setUnit('kg');
+            else if (selectedDef.classification === 'FINISHED') setUnit('un');
+        } else {
+            setType('');
+        }
+    };
+
     const [unit, setUnit] = useState(initialData?.unit || 'un');
     const [scrapId, setScrapId] = useState(initialData?.scrapMaterialId || '');
     // Ensure it's initialized as array
@@ -192,7 +220,7 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
     }, []);
 
     // NEW: Calculate Cost from BOM
-    const calculateCost = async (prodCode: number) => {
+    const calculateCost = async (prodCode: string) => {
         if (!prodCode) return;
         setIsCalculating(true);
         try {
@@ -223,6 +251,7 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
             setCost(initialData.custoUnit.toString());
             setCategory(initialData.category || 'ARTICULADO');
             setType(initialData.type || 'FINISHED');
+            setSelectedTypeId(initialData.productTypeId || ''); // NEW
             setUnit(initialData.unit || 'un');
             setScrapId(initialData.scrapMaterialId || '');
             // Force reset when switching items
@@ -237,8 +266,9 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
             setDesc('');
             setWeight('');
             setCost('');
-            setCategory('ARTICULADO');
-            setType('FINISHED');
+            setCategory('');
+            setType('');
+            setSelectedTypeId(''); // NEW
             setUnit('un');
             setScrapId('');
             setCompMachines([]);
@@ -265,17 +295,20 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
             if (isNaN(numWeight)) throw new Error("Peso inválido (verifique vírgulas/pontos)");
             if (isNaN(numCost)) throw new Error("Custo inválido (verifique vírgulas/pontos)");
 
+            if (!type) throw new Error("O tipo de produto é obrigatório.");
+
             await saveProduct({
                 ...initialData, // Preserve hidden fields
-                codigo: Number(code),
+                codigo: code,
                 produto: name,
                 descricao: desc,
                 pesoLiquido: numWeight,
                 custoUnit: numCost,
                 category: category,
-                type: type,
+                type: type as 'FINISHED' | 'INTERMEDIATE' | 'COMPONENT',
                 unit: unit,
                 scrapMaterialId: scrapId || undefined, // Send undefined if empty string
+                productTypeId: selectedTypeId, // NEW
                 compatibleMachines: compMachines
             });
             onSave();
@@ -289,7 +322,7 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
 
     return (
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
-            <Input label="Cód" value={code} onChange={e => setCode(e.target.value)} required disabled={!!initialData} />
+            <Input label="Cód" value={code} onChange={e => setCode(e.target.value)} required />
             <Input label="Produto" value={name} onChange={e => setName(e.target.value)} required className="md:col-span-3" />
             <Input label="Descrição" value={desc} onChange={e => setDesc(e.target.value)} className="md:col-span-4" />
             <Input label="Peso (g)" type="text" value={weight} onChange={e => setWeight(e.target.value)} placeholder="0.00" />
@@ -320,28 +353,26 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                         <option key={cat.id} value={cat.name}>{cat.name}</option>
                     ))}
                     {!categories.find(c => c.name === category) && category && <option value={category}>{category}</option>}
-                    {/* Fallback to display the KIT placeholder correctly if nothing selected */}
-                    {!category && <option value="KIT">KIT DE POTE</option>}
+                    <option value="">Selecione...</option>
                 </select>
             </div>
 
             <div className="flex flex-col">
                 <label className="text-sm font-semibold text-slate-700">Tipo de Produto</label>
                 <select
-                    value={type}
-                    onChange={(e) => {
-                        const newType = e.target.value as any;
-                        setType(newType);
-                        // Auto-suggest unit only on explicit type change
-                        if (newType === 'INTERMEDIATE') setUnit('kg');
-                        else if (newType === 'FINISHED') setUnit('un');
-                    }}
+                    value={selectedTypeId}
+                    onChange={handleTypeChange}
                     className="px-3 py-2 border rounded-lg bg-white"
+                    required
                 >
-                    <option value="FINISHED">Produto Acabado (Termoformagem)</option>
-                    <option value="INTERMEDIATE">Bobina (Extrusão)</option>
-                    <option value="COMPONENT">Componente / Outro</option>
+                    <option value="">Selecione...</option>
+                    {productTypes.map(pt => (
+                        <option key={pt.id} value={pt.id}>
+                            {pt.name} ({pt.classification === 'FINISHED' ? 'Acabado' : pt.classification === 'INTERMEDIATE' ? 'Bobina' : 'Componente'})
+                        </option>
+                    ))}
                 </select>
+                {type && <span className="text-[10px] text-slate-400 font-mono mt-1">Classificação: {type}</span>}
             </div>
 
             <div className="flex flex-col">
@@ -368,6 +399,10 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                     <option value="">- Nenhuma recuperação -</option>
                     {materials.filter(m => m.category === 'raw_material' || m.category === 'return' || m.category === 'scrap' || m.name.toLowerCase().includes('apara')).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
+                <div className="mt-1 flex gap-1 text-[11px] text-sky-600 bg-sky-50 p-1.5 rounded border border-sky-100">
+                    <Info size={14} className="shrink-0 text-sky-500" />
+                    <span>A reciclagem (retorno ao processo) depende do cadastro prévio dos materiais na gestão de estoque.</span>
+                </div>
             </div>
 
             <div className="md:col-span-4 border border-slate-200 rounded-lg p-3 bg-white">
@@ -526,8 +561,17 @@ const DowntimeForm: React.FC<{ onSave: () => void; initialData?: DowntimeType }>
             setId(initialData.id);
             setDesc(initialData.description);
             setExempt(initialData.exemptFromOperator || false);
+            setSector(initialData.sector || ''); // NEW
+        } else {
+            setSector(''); // Reset on new
         }
     }, [initialData]);
+
+    // NEW state for sectors
+    const [sector, setSector] = useState(initialData?.sector || '');
+    const [sectors, setSectors] = useState<Sector[]>([]);
+
+    useEffect(() => { fetchSectors().then(setSectors); }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -535,7 +579,8 @@ const DowntimeForm: React.FC<{ onSave: () => void; initialData?: DowntimeType }>
             await saveDowntimeType({
                 id,
                 description: desc,
-                exemptFromOperator: exempt
+                exemptFromOperator: exempt,
+                sector: sector || undefined // NEW
             });
             onSave();
         } catch (e: any) {
@@ -549,6 +594,17 @@ const DowntimeForm: React.FC<{ onSave: () => void; initialData?: DowntimeType }>
             </div>
             <div className="flex-1 w-full">
                 <Input label="Descrição" value={desc} onChange={e => setDesc(e.target.value)} required />
+            </div>
+            <div className="flex-1 w-full">
+                <label className="text-xs font-bold text-slate-500 mb-1 block">Setor (Opcional)</label>
+                <select
+                    value={sector}
+                    onChange={e => setSector(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500"
+                >
+                    <option value="">Global (Todos)</option>
+                    {sectors.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
             </div>
             <div className="flex items-center h-10 px-3 border border-slate-200 rounded-lg bg-slate-50 mb-[2px]">
                 <input
@@ -571,17 +627,95 @@ const DowntimeForm: React.FC<{ onSave: () => void; initialData?: DowntimeType }>
 
 const ScrapForm: React.FC<{ onSave: () => void; initialData?: ScrapReason }> = ({ onSave, initialData }) => {
     const [desc, setDesc] = useState(initialData?.description || '');
-    useEffect(() => { if (initialData) setDesc(initialData.description); }, [initialData]);
+    const [sector, setSector] = useState(initialData?.sector || '');
+    const [sectors, setSectors] = useState<Sector[]>([]);
+
+    useEffect(() => { fetchSectors().then(setSectors); }, []);
+
+    useEffect(() => {
+        if (initialData) {
+            setDesc(initialData.description);
+            setSector(initialData.sector || '');
+        } else {
+            setSector('');
+        }
+    }, [initialData]);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            await saveScrapReason({ id: initialData?.id, description: desc });
+            await saveScrapReason({ id: initialData?.id, description: desc, sector: sector || undefined });
             onSave();
         } catch (e: any) {
             alert("Erro ao salvar motivo de refugo: " + formatError(e));
         }
     };
-    return (<form onSubmit={handleSubmit} className="flex gap-4 items-end"><div className="flex-1"><Input label="Descrição do Defeito" value={desc} onChange={e => setDesc(e.target.value)} required /></div><button type="submit" className="mb-[2px] px-4 py-2 bg-green-600 text-white rounded-lg"><Save size={18} /></button></form>);
+    return (
+        <form onSubmit={handleSubmit} className="flex flex-col md:flex-row gap-4 items-end">
+            <div className="flex-1 w-full">
+                <Input label="Descrição do Defeito" value={desc} onChange={e => setDesc(e.target.value)} required />
+            </div>
+            <div className="md:w-64 w-full">
+                <label className="text-xs font-bold text-slate-500 mb-1 block">Setor (Opcional)</label>
+                <select
+                    value={sector}
+                    onChange={e => setSector(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500"
+                >
+                    <option value="">Global (Todos)</option>
+                    {sectors.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+            </div>
+            <button type="submit" className="w-full md:w-auto mb-[2px] px-4 py-2 bg-green-600 text-white rounded-lg flex items-center justify-center">
+                <Save size={18} />
+            </button>
+        </form>
+    );
+};
+
+const ProductTypeForm: React.FC<{ onSave: () => void; initialData?: ProductTypeDefinition }> = ({ onSave, initialData }) => {
+    const [name, setName] = useState(initialData?.name || '');
+    const [classification, setClassification] = useState<'FINISHED' | 'INTERMEDIATE' | 'COMPONENT'>(initialData?.classification || 'FINISHED');
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        try {
+            await saveProductType({ id: initialData?.id || '', name, classification });
+            onSave();
+        } catch (e: any) {
+            alert("Erro ao salvar tipo de produto: " + formatError(e));
+        }
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="flex flex-col md:flex-row gap-4 items-end">
+            <div className="flex-1 w-full">
+                <label className="text-xs font-bold text-slate-500 mb-1 block">Nome do Tipo (ex: Tampa, Pote)</label>
+                <input
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500"
+                    required
+                />
+            </div>
+            <div className="md:w-64">
+                <label className="text-xs font-bold text-slate-500 mb-1 block">Classificação no Sistema</label>
+                <select
+                    value={classification}
+                    onChange={e => setClassification(e.target.value as any)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500"
+                    required
+                >
+                    <option value="FINISHED">Produto Acabado</option>
+                    <option value="INTERMEDIATE">Bobina / Intermediário</option>
+                    <option value="COMPONENT">Componente / Matéria Prima</option>
+                </select>
+            </div>
+            <button type="submit" className="w-full md:w-auto mb-[2px] px-4 py-2 bg-green-600 text-white rounded-lg flex items-center justify-center">
+                <Save size={18} className="mr-2 md:mr-0" />
+            </button>
+        </form>
+    );
 };
 
 const CategoryForm: React.FC<{ onSave: () => void; initialData?: ProductCategory }> = ({ onSave, initialData }) => {
@@ -719,7 +853,10 @@ const MachineForm: React.FC<{ onSave: () => void; initialData?: Machine }> = ({ 
     const [code, setCode] = useState(initialData?.code || '');
     const [name, setName] = useState(initialData?.name || '');
     const [sector, setSector] = useState<MachineSector>(initialData?.sector || 'Termoformagem');
-    const [capacity, setCapacity] = useState(initialData?.productionCapacity?.toString() || ''); // NEW
+    const [capacity, setCapacity] = useState(initialData?.productionCapacity?.toString() || '');
+    const [unit, setUnit] = useState(initialData?.capacity_unit || 'kg/h'); // NEW
+    const [machineValue, setMachineValue] = useState(initialData?.machine_value ? initialData.machine_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''); // NEW
+    const [acquisitionDate, setAcquisitionDate] = useState(initialData?.acquisitionDate ? new Date(initialData.acquisitionDate).toISOString().split('T')[0] : '');
     const [sectorsList, setSectorsList] = useState<Sector[]>([]);
 
     useEffect(() => {
@@ -738,6 +875,9 @@ const MachineForm: React.FC<{ onSave: () => void; initialData?: Machine }> = ({ 
             setName(initialData.name);
             if (initialData.sector) setSector(initialData.sector);
             if (initialData.productionCapacity) setCapacity(initialData.productionCapacity.toString());
+            if (initialData.capacity_unit) setUnit(initialData.capacity_unit);
+            if (initialData.machine_value) setMachineValue(initialData.machine_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 }));
+            if (initialData.acquisitionDate) setAcquisitionDate(new Date(initialData.acquisitionDate).toISOString().split('T')[0]);
         }
     }, [initialData]);
 
@@ -749,7 +889,10 @@ const MachineForm: React.FC<{ onSave: () => void; initialData?: Machine }> = ({ 
                 code,
                 name,
                 sector,
-                productionCapacity: capacity ? Number(capacity) : undefined
+                productionCapacity: capacity ? Number(capacity) : undefined,
+                capacity_unit: unit,
+                machine_value: machineValue ? parseFloat(machineValue.replace(/\./g, '').replace(',', '.')) : undefined,
+                acquisitionDate: acquisitionDate || undefined
             });
             onSave();
         } catch (e: any) {
@@ -761,36 +904,80 @@ const MachineForm: React.FC<{ onSave: () => void; initialData?: Machine }> = ({ 
     const capacityLabel = sector === 'Extrusão' ? 'Capacidade (kg/h)' : 'Capacidade Nominal (Ciclos/h)';
 
     return (
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-            <Input label="Cód" value={code} onChange={e => setCode(e.target.value)} required disabled={!!initialData} />
-            <Input label="Nome" value={name} onChange={e => setName(e.target.value)} required className="md:col-span-2" />
-
-            <div className="flex flex-col">
-                <label className="text-sm font-semibold">Setor</label>
-                <select value={sector} onChange={(e) => setSector(e.target.value as any)} className="px-3 py-2 border rounded-lg bg-white">
-                    {sectorsList.map(s => (
-                        <option key={s.id} value={s.name}>{s.name}</option>
-                    ))}
-                    {!sectorsList.length && (
-                        <>
-                            <option value="Termoformagem">Termoformagem</option>
-                            <option value="Extrusão">Extrusão</option>
-                        </>
-                    )}
-                </select>
+        <form onSubmit={handleSubmit} className="grid grid-cols-12 gap-4 items-end">
+            {/* ROW 1: Code | Sector | Name */}
+            <div className="col-span-12 md:col-span-2">
+                <Input label="Cód. Máquina" value={code} onChange={e => setCode(e.target.value)} required placeholder="Ex: 001" />
+            </div>
+            <div className="col-span-12 md:col-span-4">
+                <div className="flex flex-col">
+                    <label className="text-sm font-semibold text-slate-700 mb-1">Setor</label>
+                    <select value={sector} onChange={(e) => setSector(e.target.value as any)} className="px-3 py-2.5 border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-brand-500 w-full">
+                        {sectorsList.map(s => (
+                            <option key={s.id} value={s.name}>{s.name}</option>
+                        ))}
+                        {!sectorsList.length && (
+                            <>
+                                <option value="Termoformagem">Termoformagem</option>
+                                <option value="Extrusão">Extrusão</option>
+                            </>
+                        )}
+                    </select>
+                </div>
+            </div>
+            <div className="col-span-12 md:col-span-6">
+                <Input label="Nome da Máquina" value={name} onChange={e => setName(e.target.value)} required placeholder="Ex: Extrusora Principal" />
             </div>
 
-            <div className="flex flex-col">
-                <Input label={capacityLabel} type="number" value={capacity} onChange={e => setCapacity(e.target.value)} placeholder="0" />
+            {/* ROW 2: Capacity | Unit | Value | Date (Optional) */}
+            <div className="col-span-12 md:col-span-4 flex flex-col">
+                <label className="text-sm font-semibold text-slate-700 mb-1">Capacidade Produtiva</label>
+                <div className="flex gap-2">
+                    <Input className="flex-1" type="number" value={capacity} onChange={e => setCapacity(e.target.value)} placeholder="0" label="" />
+                    <select
+                        value={unit}
+                        onChange={e => setUnit(e.target.value)}
+                        className="w-24 px-2 py-2 border border-slate-300 rounded-lg bg-slate-50 text-sm focus:ring-2 focus:ring-brand-500"
+                    >
+                        <option value="kg/h">kg/h</option>
+                        <option value="un/h">un/h</option>
+                        <option value="pç/h">pç/h</option>
+                        <option value="cx/h">cx/h</option>
+                        <option value="ml/h">ml/h</option>
+                        <option value="lt/h">lt/h</option>
+                        <option value="m/h">m/h</option>
+                        <option value="m²/h">m²/h</option>
+                    </select>
+                </div>
+            </div>
+            <div className="col-span-12 md:col-span-4">
+                <Input
+                    label="Valor do Patrimônio (R$)"
+                    value={machineValue}
+                    onChange={e => {
+                        const v = e.target.value.replace(/\D/g, '');
+                        const m = (Number(v) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+                        setMachineValue(m);
+                    }}
+                    placeholder="0,00"
+                />
+            </div>
+            <div className="col-span-12 md:col-span-4">
+                <Input label="Data de Aquisição" type="date" value={acquisitionDate} onChange={e => setAcquisitionDate(e.target.value)} />
             </div>
 
-            <button type="submit" className="md:col-span-4 bg-green-600 text-white py-2 rounded-lg"><Save size={18} className="mx-auto" /></button>
+            {/* ROW 3: Save Button */}
+            <div className="col-span-12 mt-4">
+                <button type="submit" className="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 flex items-center justify-center transition-colors shadow-sm">
+                    <Save size={20} className="mr-2" /> Salvar Máquina
+                </button>
+            </div>
         </form>
     );
 };
 
 const EngineeringRegistrations: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'machines' | 'sectors' | 'operators' | 'downtime' | 'scrap' | 'shifts'>('products');
+    const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'machines' | 'sectors' | 'operators' | 'downtime' | 'scrap' | 'shifts' | 'types'>('products');
 
     // Data States
     const [products, setProducts] = useState<Product[]>([]);
@@ -801,6 +988,62 @@ const EngineeringRegistrations: React.FC = () => {
     const [categories, setCategories] = useState<ProductCategory[]>([]);
     const [sectors, setSectors] = useState<Sector[]>([]);
     const [workShifts, setWorkShifts] = useState<WorkShift[]>([]);
+    const [productTypes, setProductTypes] = useState<ProductTypeDefinition[]>([]);
+
+    // NEW: Guided Mode State
+    const [isGuidedMode, setIsGuidedMode] = useState(false);
+    const [showHelpModal, setShowHelpModal] = useState(false);
+
+    useEffect(() => {
+        if (isGuidedMode) {
+            setShowHelpModal(true);
+        } else {
+            setShowHelpModal(false);
+        }
+    }, [activeTab, isGuidedMode]);
+
+    // Standard vs Guided Order
+    const standardTabs = [
+        { id: 'products', label: 'Produtos', icon: Package },
+        { id: 'types', label: 'Tipos de Produto', icon: Boxes },
+        { id: 'categories', label: 'Categorias Prod.', icon: Layers },
+        { id: 'machines', label: 'Máquinas', icon: Cpu },
+        { id: 'sectors', label: 'Setores', icon: Grid },
+        { id: 'operators', label: 'Operadores', icon: Users },
+        { id: 'shifts', label: 'Turnos', icon: Clock },
+        { id: 'downtime', label: 'Tipos de Parada', icon: Timer },
+        { id: 'scrap', label: 'Motivos de Refugo', icon: AlertTriangle },
+    ];
+
+    const guidedTabs = [
+        { id: 'sectors', label: '1. Setores', icon: Grid },
+        { id: 'categories', label: '2. Categorias', icon: Layers },
+        { id: 'types', label: '3. Tipos de Produto', icon: Boxes }, // NEW
+        { id: 'shifts', label: '4. Turnos', icon: Clock },
+        { id: 'downtime', label: '5. Tipos de Parada', icon: Timer },
+        { id: 'scrap', label: '6. Motivos de Refugo', icon: AlertTriangle },
+        { id: 'machines', label: '7. Máquinas', icon: Cpu },
+        { id: 'operators', label: '8. Operadores', icon: Users },
+        { id: 'products', label: '9. Produtos', icon: Package },
+    ];
+
+    const currentTabs = isGuidedMode ? guidedTabs : standardTabs;
+
+    // Helper to check if tab is completed (has data)
+    const isTabCompleted = (tabId: string) => {
+        switch (tabId) {
+            case 'products': return products.length > 0;
+            case 'types': return productTypes.length > 0; // NEW
+            case 'machines': return machines.length > 0;
+            case 'operators': return operators.length > 0;
+            case 'downtime': return downtimeTypes.length > 0;
+            case 'scrap': return scrapReasons.length > 0;
+            case 'categories': return categories.length > 0;
+            case 'sectors': return sectors.length > 0;
+            case 'shifts': return workShifts.length > 0;
+            default: return false;
+        }
+    };
 
     const [loading, setLoading] = useState(false);
 
@@ -820,7 +1063,7 @@ const EngineeringRegistrations: React.FC = () => {
         setLoading(true);
         setErrorMessage(null);
         try {
-            const [pData, mData, oData, dtData, scData, catData, secData, wData] = await Promise.all([
+            const [pData, mData, oData, dtData, scData, catData, secData, wData, ptData] = await Promise.all([
                 fetchProducts(),
                 fetchMachines(),
                 fetchOperators(),
@@ -828,7 +1071,8 @@ const EngineeringRegistrations: React.FC = () => {
                 fetchScrapReasons(),
                 fetchProductCategories(),
                 fetchSectors(),
-                fetchWorkShifts()
+                fetchWorkShifts(),
+                fetchProductTypes() // NEW
             ]);
             setProducts(pData);
             setMachines(mData);
@@ -838,6 +1082,7 @@ const EngineeringRegistrations: React.FC = () => {
             setCategories(catData);
             setSectors(secData);
             setWorkShifts(wData);
+            setProductTypes(ptData); // NEW
         } catch (e) { console.error(e); }
         finally { setLoading(false); }
     };
@@ -863,7 +1108,7 @@ const EngineeringRegistrations: React.FC = () => {
         setErrorMessage(null);
     };
 
-    const confirmDelete = async () => {
+    const handleDeleteConfirm = async () => {
         if (!itemToDelete) return;
         setIsDeleting(true);
 
@@ -880,9 +1125,8 @@ const EngineeringRegistrations: React.FC = () => {
             await refreshAllData();
             setDeleteModalOpen(false);
             setItemToDelete(null);
-        } catch (e: any) {
-            handleDeleteError(e, deleteType === 'parada' ? 'tipo de parada' : deleteType);
-            setDeleteModalOpen(false);
+        } catch (error: any) {
+            setErrorMessage("Erro ao excluir: " + formatError(error));
         } finally {
             setIsDeleting(false);
         }
@@ -908,34 +1152,48 @@ const EngineeringRegistrations: React.FC = () => {
 
     const getDeleteMessage = () => {
         if (!itemToDelete) return '';
-        if (deleteType === 'produto') return `Deseja excluir o produto "${itemToDelete.produto}"?`;
-        if (deleteType === 'maquina') return `Deseja excluir a máquina "${itemToDelete.name}"?`;
-        if (deleteType === 'operador') return `Deseja excluir o operador "${itemToDelete.name}"?`;
-        if (deleteType === 'parada') return `Deseja excluir o tipo de parada "${itemToDelete.description}"?`;
-        if (deleteType === 'refugo') return `Deseja excluir o motivo "${itemToDelete.description}"?`;
-        if (deleteType === 'categoria') return `Deseja excluir a categoria "${itemToDelete.name}"?`;
-        if (deleteType === 'setor') return `Deseja excluir o setor "${itemToDelete.name}"?`;
-        if (deleteType === 'turno') return `Deseja excluir o turno "${itemToDelete.name}" (${itemToDelete.startTime}-{itemToDelete.endTime})?`;
-        return 'Confirmar exclusão?';
+        if (deleteType === 'produto') return `Tem certeza que deseja excluir o produto "${itemToDelete.produto}"?`;
+        if (deleteType === 'maquina') return `Tem certeza que deseja excluir a máquina "${itemToDelete.name}"?`;
+        if (deleteType === 'operador') return `Tem certeza que deseja excluir o operador "${itemToDelete.name}"?`;
+        if (deleteType === 'parada') return `Tem certeza que deseja excluir o tipo de parada "${itemToDelete.description}"?`;
+        if (deleteType === 'refugo') return `Tem certeza que deseja excluir o motivo "${itemToDelete.description}"?`;
+        if (deleteType === 'categoria') return `Tem certeza que deseja excluir a categoria "${itemToDelete.name}"?`;
+        if (deleteType === 'setor') return `Tem certeza que deseja excluir o setor "${itemToDelete.name}"?`;
+        if (deleteType === 'turno') return `Tem certeza que deseja excluir o turno "${itemToDelete.name}"?`;
+        return 'Tem certeza?';
     };
 
     return (
-        <div className="space-y-6">
+        <div className="p-6 md:max-w-7xl mx-auto space-y-6">
             <DeleteConfirmationModal
                 isOpen={deleteModalOpen}
                 onClose={() => setDeleteModalOpen(false)}
-                onConfirm={confirmDelete}
-                isDeleting={isDeleting}
-                title="Confirmar Exclusão"
+                onConfirm={handleDeleteConfirm}
+                title={`Excluir ${deleteType}`}
                 message={getDeleteMessage()}
+                isDeleting={isDeleting}
             />
 
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h2 className="text-2xl font-bold text-slate-800">Cadastros Gerais</h2>
                     <p className="text-slate-500">Dados mestres do sistema: Produtos, Máquinas e Pessoas.</p>
                 </div>
-                {loading && <Loader2 className="animate-spin text-brand-600" />}
+
+                <div className="flex items-center gap-4">
+                    {/* Guided Mode Toggle */}
+                    <button
+                        onClick={() => setIsGuidedMode(!isGuidedMode)}
+                        className={`px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-all ${isGuidedMode
+                            ? 'bg-brand-600 text-white shadow-md ring-2 ring-brand-200'
+                            : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
+                            }`}
+                    >
+                        {isGuidedMode ? <CheckSquare size={18} /> : <Layers size={18} />}
+                        {isGuidedMode ? 'Modo Assistente Ativo' : 'Ativar Assistente de Configuração'}
+                    </button>
+                    {loading && <Loader2 className="animate-spin text-brand-600" />}
+                </div>
             </div>
 
             {errorMessage && (
@@ -945,43 +1203,70 @@ const EngineeringRegistrations: React.FC = () => {
                         <p className="font-bold">Erro na operação</p>
                         <p className="text-sm">{errorMessage}</p>
                     </div>
-                    <button onClick={() => setErrorMessage(null)} className="ml-auto text-red-500 hover:text-red-700"><X size={18} /></button>
                 </div>
             )}
 
-            <div className="flex space-x-1 border-b border-slate-200 overflow-x-auto pb-1">
-                {[
-                    { id: 'products', label: 'Produtos', icon: Package },
-                    { id: 'categories', label: 'Categorias Prod.', icon: Layers },
-                    { id: 'machines', label: 'Máquinas', icon: Cpu },
-                    { id: 'sectors', label: 'Setores', icon: Grid },
-                    { id: 'operators', label: 'Operadores', icon: Users },
-                    { id: 'shifts', label: 'Turnos', icon: Clock },
-                    { id: 'downtime', label: 'Tipos de Parada', icon: Timer },
-                    { id: 'scrap', label: 'Motivos de Refugo', icon: AlertTriangle },
-                ].map(tab => (
-                    <button
-                        key={tab.id}
-                        onClick={() => setActiveTab(tab.id as any)}
-                        className={`px-4 py-3 text-sm font-medium flex items-center space-x-2 transition-all rounded-t-lg whitespace-nowrap ${activeTab === tab.id
-                            ? 'border border-b-0 border-slate-200 bg-white text-brand-600 shadow-sm translate-y-px'
-                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-                            }`}
-                    >
-                        <tab.icon size={16} />
-                        <span>{tab.label}</span>
-                    </button>
-                ))}
+
+
+            <div className={`space-y-4 ${isGuidedMode ? 'bg-brand-50 p-4 rounded-xl border border-brand-100' : ''}`}>
+                {isGuidedMode && (
+                    <div className="mb-2 text-sm text-brand-800 font-medium flex items-center gap-2">
+                        <Info size={16} />
+                        Siga a numeração das abas para configurar sua empresa corretamente. Itens concluídos recebem um "check" verde.
+                    </div>
+                )}
+
+                <div className="flex space-x-1 border-b border-slate-200 overflow-x-auto pb-1 scrollbar-hide">
+                    {currentTabs.map(tab => {
+                        const completed = isGuidedMode && isTabCompleted(tab.id);
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id as any)}
+                                className={`px-4 py-3 text-sm font-medium flex items-center space-x-2 transition-all rounded-t-lg whitespace-nowrap relative ${activeTab === tab.id
+                                    ? 'border border-b-0 border-slate-200 bg-white text-brand-600 shadow-sm translate-y-px z-10'
+                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                                    }`}
+                            >
+                                <tab.icon size={16} />
+                                <span>{tab.label}</span>
+                                {completed && <CheckCircle size={14} className="text-green-500 ml-1 fill-green-100" />}
+                            </button>
+                        );
+                    })}
+                </div>
             </div>
 
             <div className="bg-white rounded-b-xl rounded-tr-xl shadow-sm border border-slate-200 p-6 min-h-[500px]">
+                {activeTab === 'types' && <SimpleTable<ProductTypeDefinition>
+                    data={productTypes}
+                    columns={[
+                        { header: 'Nome do Tipo', render: (t) => <span className="font-bold text-slate-800">{t.name}</span> },
+                        { header: 'Classificação Sistema', render: (t) => <span className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded font-mono">{t.classification}</span> }
+                    ]}
+                    onDelete={(t) => openDeleteModal(t, 'tipo de produto')}
+                    FormComponent={ProductTypeForm}
+                    onSaveSuccess={refreshAllData}
+                />}
+
                 {activeTab === 'machines' && <SimpleTable<Machine>
                     data={machines}
                     columns={[
                         { header: 'Código', render: (m: Machine) => <span className="font-mono font-bold text-slate-700">{m.code}</span> },
                         { header: 'Nome', render: (m: Machine) => m.name },
                         { header: 'Setor', render: (m: Machine) => <span className={`px-2 py-1 rounded text-xs font-semibold bg-blue-100 text-blue-800`}>{m.sector}</span> },
-                        { header: 'Capacidade', render: (m: Machine) => m.productionCapacity ? <span className="font-mono text-xs">{m.productionCapacity} {m.sector === 'Extrusão' ? 'kg/h' : 'ciclos/h'}</span> : '-' },
+                        {
+                            header: 'Capacidade',
+                            render: (m: Machine) => m.productionCapacity
+                                ? <span className="font-mono text-xs">{m.productionCapacity} {m.capacity_unit || (m.sector === 'Extrusão' ? 'kg/h' : 'ciclos/h')}</span>
+                                : '-'
+                        },
+                        {
+                            header: 'Valor',
+                            render: (m: Machine) => m.machine_value
+                                ? <span className="font-mono text-xs text-slate-600">R$ {m.machine_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                : '-'
+                        },
                         { header: 'Data Aquisição', render: (m: Machine) => m.acquisitionDate ? new Date(m.acquisitionDate).toLocaleDateString() : '-' },
                     ]}
                     onDelete={(m) => openDeleteModal(m, 'maquina')}
@@ -1058,6 +1343,8 @@ const EngineeringRegistrations: React.FC = () => {
                     onSaveSuccess={refreshAllData}
                 />}
 
+
+
                 {activeTab === 'categories' && <SimpleTable<ProductCategory>
                     data={categories}
                     columns={[
@@ -1113,6 +1400,12 @@ const EngineeringRegistrations: React.FC = () => {
                     columns={[
                         { header: 'Código', render: (d: DowntimeType) => <span className="font-mono font-bold bg-slate-100 px-2 py-1 rounded">{d.id}</span> },
                         { header: 'Descrição', render: (d: DowntimeType) => d.description },
+                        {
+                            header: 'Setor', render: (d: DowntimeType) => {
+                                const secName = sectors.find(s => s.id === d.sector)?.name || d.sector;
+                                return d.sector ? <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded">{secName}</span> : <span className="text-slate-400 text-xs italic">Global</span>;
+                            }
+                        },
                         { header: 'Regra', render: (d: DowntimeType) => d.exemptFromOperator ? <span className="flex items-center text-orange-600 text-xs font-bold"><CheckSquare size={12} className="mr-1" /> Isenta Operador</span> : '-' },
                     ]}
                     onDelete={(dt) => openDeleteModal(dt, 'parada')}
@@ -1124,12 +1417,71 @@ const EngineeringRegistrations: React.FC = () => {
                     data={scrapReasons}
                     columns={[
                         { header: 'Descrição', render: (s: ScrapReason) => s.description },
+                        {
+                            header: 'Setor', render: (s: ScrapReason) => {
+                                const secName = sectors.find(sec => sec.id === s.sector)?.name || s.sector;
+                                return s.sector ? <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded">{secName}</span> : <span className="text-slate-400 text-xs italic">Global</span>;
+                            }
+                        },
                     ]}
                     onDelete={(s) => openDeleteModal(s, 'refugo')}
                     FormComponent={ScrapForm}
                     onSaveSuccess={refreshAllData}
                 />}
             </div>
+
+            {/* Guided Mode Help Modal */}
+            {
+                isGuidedMode && showHelpModal && (
+                    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] p-4 animate-in fade-in duration-200">
+                        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 relative animate-in zoom-in-95 slide-in-from-bottom-4 duration-300 border border-slate-100">
+                            <button
+                                onClick={() => setShowHelpModal(false)}
+                                className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-2 rounded-full transition-colors"
+                            >
+                                <X size={20} />
+                            </button>
+
+                            <div className="flex flex-col items-center text-center space-y-4 mt-2">
+                                <div className="bg-blue-50 p-4 rounded-full text-blue-600 ring-4 ring-blue-50/50">
+                                    <Lightbulb size={32} strokeWidth={1.5} />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <h3 className="text-xl font-bold text-slate-800">
+                                        {standardTabs.find(t => t.id === activeTab)?.label}
+                                    </h3>
+                                    <div className="h-1 w-12 bg-blue-100 mx-auto rounded-full" />
+                                </div>
+
+                                <p className="text-slate-600 leading-relaxed text-sm">
+                                    {(() => {
+                                        switch (activeTab) {
+                                            case 'products': return "Aqui você cadastra os produtos finais (acabados), intermediários (bobinas) e componentes. É importante definir o 'Tipo de Produto' corretamente para que o sistema saiba como tratar o item no estoque e na produção.";
+                                            case 'types': return "ATENÇÃO: Este cadastro define as CLASSIFICAÇÕES dos produtos (ex: Matéria Prima, Produto Acabado, Embalagem), e não os produtos em si. Estas categorias ajudam a organizar o estoque e definir regras de movimentação.";
+                                            case 'categories': return "Crie categorias lógicas para agrupar seus produtos em relatórios (ex: 'Linha Premium', 'Linha Econômica'). Isso facilita a análise de vendas e produção.";
+                                            case 'machines': return "Cadastre todas as máquinas e equipamentos produtivos. Informe a capacidade produtiva correta, pois ela será usada para calcular a eficiência (OEE) e o planejamento da produção.";
+                                            case 'sectors': return "Defina as áreas da fábrica (ex: Extrusão, Corte e Solda). Marque como 'Produtivo' os setores que possuem máquinas e apontamento de produção.";
+                                            case 'operators': return "Cadastre os colaboradores que operam as máquinas. Associe-os aos setores corretos para facilitar o apontamento de produção nos tablets/terminais.";
+                                            case 'shifts': return "Configure os turnos de trabalho (ex: Manhã, Tarde, Noite). Defina os horários de início e fim para que o sistema calcule corretamente as horas disponíveis para produção.";
+                                            case 'downtime': return "Crie motivos de parada padronizados (ex: Falta de Energia, Manutenção Mecânica). Associe a setores específicos para que o operador veja apenas as paradas relevantes para a máquina dele.";
+                                            case 'scrap': return "Defina os motivos de refugo (perda de material). Isso ajuda a identificar as principais causas de desperdício na fábrica. Ex: 'Mancha', 'Furo', 'Medida incorreta'.";
+                                            default: return "Utilize esta tela para gerenciar os cadastros básicos do sistema.";
+                                        }
+                                    })()}
+                                </p>
+
+                                <button
+                                    onClick={() => setShowHelpModal(false)}
+                                    className="bg-blue-600 text-white px-8 py-2.5 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 active:scale-95 w-full sm:w-auto mt-2"
+                                >
+                                    Entendi, vamos lá!
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
         </div>
     );
 };

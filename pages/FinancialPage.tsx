@@ -8,7 +8,10 @@ import { PieChart as RePieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend
 
 const COLORS = ['#3b82f6', '#f97316', '#eab308']; // Mat, Pack, Op
 
+import { useAuth } from '../contexts/AuthContext';
+
 const FinancialPage: React.FC = () => {
+    const { user } = useAuth();
     const [costData, setCostData] = useState<ProductCostSummary[]>([]);
     const [boms, setBoms] = useState<ProductBOM[]>([]); // Keep BOMs only for details view (lighter)
     const [loading, setLoading] = useState(true);
@@ -29,7 +32,7 @@ const FinancialPage: React.FC = () => {
             setLoading(false);
         };
         loadData();
-    }, []);
+    }, [user?.organizationId]);
 
     // Reset pagination when search changes
     useEffect(() => {
@@ -45,8 +48,8 @@ const FinancialPage: React.FC = () => {
         });
     }, [costData]);
 
-    const filteredData = enhancedData.filter(d => 
-        d.productName.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    const filteredData = enhancedData.filter(d =>
+        d.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         d.productCode.toString().includes(searchTerm)
     );
 
@@ -59,10 +62,10 @@ const FinancialPage: React.FC = () => {
 
     const handlePriceChange = async (code: number, newPrice: string) => {
         const val = parseFloat(newPrice) || 0;
-        
+
         // Update Local
         setCostData(prev => prev.map(c => c.productCode === code ? { ...c, sellingPrice: val } : c));
-        
+
         // Save DB (Updates product table, trigger updates view)
         try {
             await saveProduct({ codigo: code, sellingPrice: val } as any);
@@ -70,17 +73,17 @@ const FinancialPage: React.FC = () => {
     };
 
     const getCategoryIcon = (cat?: MaterialCategory) => {
-        switch(cat) {
-            case 'packaging': return <Box size={14} className="text-orange-500"/>;
-            case 'energy': return <Zap size={14} className="text-yellow-500"/>;
-            case 'labor': return <User size={14} className="text-blue-500"/>;
-            case 'raw_material': return <Hammer size={14} className="text-slate-500"/>;
-            default: return <Hammer size={14} className="text-slate-500"/>;
+        switch (cat) {
+            case 'packaging': return <Box size={14} className="text-orange-500" />;
+            case 'energy': return <Zap size={14} className="text-yellow-500" />;
+            case 'labor': return <User size={14} className="text-blue-500" />;
+            case 'raw_material': return <Hammer size={14} className="text-slate-500" />;
+            default: return <Hammer size={14} className="text-slate-500" />;
         }
     };
 
     const getCategoryLabel = (cat?: MaterialCategory) => {
-        switch(cat) {
+        switch (cat) {
             case 'packaging': return 'Embalagem';
             case 'energy': return 'Energia';
             case 'labor': return 'Mão de Obra';
@@ -91,7 +94,7 @@ const FinancialPage: React.FC = () => {
     };
 
     const selectedCost = selectedProductCode ? enhancedData.find(c => c.productCode === selectedProductCode) : null;
-    
+
     // Items for the selected product BOM (fetched separately or from cache)
     const selectedBOMItems = selectedProductCode ? boms.filter(b => b.productCode === selectedProductCode).map(item => ({
         ...item,
@@ -115,9 +118,9 @@ const FinancialPage: React.FC = () => {
                 </div>
                 <div className="bg-white px-4 py-2 rounded-lg shadow-sm border border-slate-200 flex items-center">
                     <Search className="text-slate-400 mr-2" size={18} />
-                    <input 
-                        type="text" 
-                        placeholder="Buscar produto..." 
+                    <input
+                        type="text"
+                        placeholder="Buscar produto..."
                         className="outline-none text-sm"
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
@@ -153,9 +156,9 @@ const FinancialPage: React.FC = () => {
                                         <td className="px-4 py-3 text-right">
                                             <div className="flex items-center justify-end space-x-1">
                                                 <span className="text-xs text-slate-400">R$</span>
-                                                <input 
-                                                    type="number" 
-                                                    step="0.01" 
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
                                                     className="w-20 px-2 py-1 border border-slate-300 rounded text-right focus:ring-2 focus:ring-brand-500 outline-none"
                                                     value={item.sellingPrice || ''}
                                                     onChange={e => handlePriceChange(item.productCode, e.target.value)}
@@ -172,7 +175,7 @@ const FinancialPage: React.FC = () => {
                                             </span>
                                         </td>
                                         <td className="px-4 py-3 text-center">
-                                            <button 
+                                            <button
                                                 onClick={() => setSelectedProductCode(item.productCode)}
                                                 className="text-brand-600 hover:bg-brand-50 p-1.5 rounded"
                                             >
@@ -199,7 +202,7 @@ const FinancialPage: React.FC = () => {
                                 Mostrando <b>{(currentPage - 1) * itemsPerPage + 1}</b> a <b>{Math.min(currentPage * itemsPerPage, filteredData.length)}</b> de <b>{filteredData.length}</b> itens
                             </span>
                             <div className="flex space-x-1">
-                                <button 
+                                <button
                                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                                     disabled={currentPage === 1}
                                     className="p-1 rounded hover:bg-slate-200 disabled:opacity-30"
@@ -209,7 +212,7 @@ const FinancialPage: React.FC = () => {
                                 <div className="px-3 py-1 bg-white border border-slate-200 rounded text-sm font-medium">
                                     {currentPage} / {totalPages}
                                 </div>
-                                <button 
+                                <button
                                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                                     disabled={currentPage === totalPages}
                                     className="p-1 rounded hover:bg-slate-200 disabled:opacity-30"
@@ -237,11 +240,11 @@ const FinancialPage: React.FC = () => {
                                 {selectedCost.totalCost > 0 ? (
                                     <ResponsiveContainer>
                                         <RePieChart>
-                                            <Pie 
-                                                data={pieData} 
-                                                innerRadius={40} 
-                                                outerRadius={70} 
-                                                paddingAngle={5} 
+                                            <Pie
+                                                data={pieData}
+                                                innerRadius={40}
+                                                outerRadius={70}
+                                                paddingAngle={5}
                                                 dataKey="value"
                                                 isAnimationActive={true}
                                             >
@@ -279,8 +282,8 @@ const FinancialPage: React.FC = () => {
                                 </div>
                             </div>
 
-                            <button 
-                                onClick={() => setDetailsModalOpen(true)} 
+                            <button
+                                onClick={() => setDetailsModalOpen(true)}
                                 className="mt-6 w-full py-2 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-lg text-xs font-bold flex items-center justify-center transition-colors"
                             >
                                 <List size={16} className="mr-2" />
@@ -312,7 +315,7 @@ const FinancialPage: React.FC = () => {
                                 <X size={20} />
                             </button>
                         </div>
-                        
+
                         <div className="flex-1 overflow-y-auto p-0">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
