@@ -12,6 +12,7 @@ export const SuperAdminPage: React.FC = () => {
     // Form State
     const [showForm, setShowForm] = useState(false);
     const [editingOrg, setEditingOrg] = useState<any | null>(null);
+    const [confirmOrgId, setConfirmOrgId] = useState<string | null>(null);
 
     const [formData, setFormData] = useState({
         name: '',
@@ -140,23 +141,35 @@ export const SuperAdminPage: React.FC = () => {
         }
     };
 
-    const handleSwitchOrg = async (orgId: string) => {
-        if (!confirm('Deseja acessar esta organização? O sistema será recarregado.')) return;
+    const handleSwitchOrg = (orgId: string) => {
+        setConfirmOrgId(orgId);
+    };
+
+    const executeSwitchOrg = async () => {
+        if (!confirmOrgId) return;
 
         try {
             setLoading(true);
-            const { error } = await supabase
-                .from('profiles')
-                .update({ organization_id: orgId })
-                .eq('id', user?.id);
+            // Use RPC to bypass RLS
+            const { error } = await supabase.rpc('switch_organization', {
+                target_org_id: confirmOrgId
+            });
 
             if (error) throw error;
 
             await refreshProfile();
-            alert(`Acesso alterado para organização: ${orgId}`);
+            setMsg({ type: 'success', text: 'Acesso alterado com sucesso! Recarregando...' });
+
+            // Optional: short delay to show success
+            setTimeout(() => {
+                setConfirmOrgId(null);
+                setLoading(false);
+            }, 1000);
+
         } catch (error: any) {
-            alert('Erro ao trocar de organização: ' + error.message);
+            setMsg({ type: 'error', text: 'Erro ao trocar de organização: ' + error.message });
             setLoading(false);
+            setConfirmOrgId(null);
         }
     };
 
@@ -254,6 +267,40 @@ export const SuperAdminPage: React.FC = () => {
                             </button>
                         </div>
                     </form>
+                </div>
+            )}
+
+            {/* Modal de Confirmação */}
+            {confirmOrgId && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full animate-in zoom-in-95 duration-200">
+                        <div className="flex flex-col items-center text-center space-y-4">
+                            <div className="p-3 bg-brand-100 text-brand-600 rounded-full">
+                                <ArrowRight size={32} />
+                            </div>
+                            <h3 className="text-xl font-bold text-slate-800">Trocar de Organização?</h3>
+                            <p className="text-slate-500">
+                                Você está prestes a acessar o painel de outra organização.
+                                O sistema será recarregado para aplicar as novas permissões.
+                            </p>
+
+                            <div className="flex items-center gap-3 w-full mt-4">
+                                <button
+                                    onClick={() => setConfirmOrgId(null)}
+                                    className="flex-1 py-2 px-4 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={executeSwitchOrg}
+                                    disabled={loading}
+                                    className="flex-1 py-2 px-4 bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700 transition-colors flex items-center justify-center gap-2"
+                                >
+                                    {loading ? <Loader2 className="animate-spin" size={20} /> : 'Confirmar Acesso'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             )}
 

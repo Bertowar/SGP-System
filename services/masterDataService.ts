@@ -30,7 +30,9 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 export const fetchSettings = async (): Promise<AppSettings> => {
   try {
-    const { data, error } = await supabase.from('app_settings').select('*').single();
+    const orgId = await getCurrentOrgId();
+    if (!orgId) return DEFAULT_SETTINGS;
+    const { data, error } = await supabase.from('app_settings').select('*').eq('organization_id', orgId).single();
     if (error || !data) return DEFAULT_SETTINGS;
     return {
       shiftHours: data.shift_hours,
@@ -115,7 +117,8 @@ export const saveSettings = async (settings: AppSettings): Promise<{ error?: any
 
 export const fetchFieldDefinitions = async (): Promise<FieldDefinition[]> => {
   try {
-    const { data, error } = await supabase.from('custom_field_configs').select('*').eq('active', true);
+    const orgId = await getCurrentOrgId();
+    const { data, error } = await supabase.from('custom_field_configs').select('*').eq('active', true).eq('organization_id', orgId);
     let fields = data || DYNAMIC_FIELDS_CONFIG;
     fields = fields.filter((f: any) => f.key !== 'lote_mp');
     return fields.map((d: any) => ({
@@ -155,11 +158,13 @@ export const deleteFieldDefinition = async (key: string): Promise<void> => {
 
 export const fetchProducts = async (): Promise<Product[]> => {
   try {
-    const { data: productsData, error: prodError } = await supabase.from('products').select('*').order('name');
+    const orgId = await getCurrentOrgId();
+    const { data: productsData, error: prodError } = await supabase.from('products').select('*').eq('organization_id', orgId).order('name');
     if (prodError) throw prodError;
     if (prodError) throw prodError;
     // IF RLS returns 0 rows (new org), we should show 0 rows, not fallback to Mock Data.
     if (!productsData) return [];
+    // product_machines is also filtered by RLS, but we can't filter by org_id easily if it doesn't have it, relying on join
     const { data: relationsData } = await supabase.from('product_machines').select('*');
     return productsData.map((d: any) => {
       const currentProductCode = String(d.code);
@@ -268,7 +273,8 @@ export const deleteProduct = async (code: number): Promise<void> => {
 
 export const fetchProductCategories = async (): Promise<ProductCategory[]> => {
   try {
-    const { data, error } = await supabase.from('product_categories').select('*').order('name');
+    const orgId = await getCurrentOrgId();
+    const { data, error } = await supabase.from('product_categories').select('*').eq('organization_id', orgId).order('name');
     if (error || !data) return [];
     return data as ProductCategory[];
   } catch (e) { return []; }
@@ -277,7 +283,7 @@ export const fetchProductCategories = async (): Promise<ProductCategory[]> => {
 export const saveProductCategory = async (cat: ProductCategory): Promise<void> => {
   const orgId = await getCurrentOrgId();
   await supabase.from('product_categories').upsert([{
-    id: cat.id || cat.name.toUpperCase(),
+    id: cat.id || crypto.randomUUID(),
     name: cat.name,
     organization_id: orgId
   }]);
@@ -289,7 +295,8 @@ export const deleteProductCategory = async (id: string): Promise<void> => {
 
 export const fetchSectors = async (): Promise<Sector[]> => {
   try {
-    const { data, error } = await supabase.from('sectors').select('*').eq('active', true).order('name');
+    const orgId = await getCurrentOrgId();
+    const { data, error } = await supabase.from('sectors').select('*').eq('active', true).eq('organization_id', orgId).order('name');
     if (error) throw error;
     if (!data) return [];
     return data.map((d: any) => ({
@@ -304,7 +311,7 @@ export const fetchSectors = async (): Promise<Sector[]> => {
 export const saveSector = async (sector: Sector): Promise<void> => {
   const orgId = await getCurrentOrgId();
   await supabase.from('sectors').upsert([{
-    id: sector.id || sector.name.toUpperCase(),
+    id: sector.id || crypto.randomUUID(),
     name: sector.name,
     active: true,
     is_productive: sector.isProductive || false,
@@ -318,7 +325,8 @@ export const deleteSector = async (id: string): Promise<void> => {
 
 export const fetchMachines = async (): Promise<Machine[]> => {
   try {
-    const { data, error } = await supabase.from('machines').select('*');
+    const orgId = await getCurrentOrgId();
+    const { data, error } = await supabase.from('machines').select('*').eq('organization_id', orgId);
     if (error) throw error;
     if (!data) return [];
     return data.map((d: any) => ({
@@ -367,7 +375,8 @@ export const deleteMachine = async (code: string): Promise<void> => {
 
 export const fetchOperators = async (): Promise<Operator[]> => {
   try {
-    const { data, error } = await supabase.from('operators').select('*').neq('id', SYSTEM_OPERATOR_ID).order('name');
+    const orgId = await getCurrentOrgId();
+    const { data, error } = await supabase.from('operators').select('*').neq('id', SYSTEM_OPERATOR_ID).eq('organization_id', orgId).order('name');
     if (error) throw error;
     if (!data) return [];
     return data.map((d: any) => ({
@@ -410,7 +419,8 @@ export const deleteOperator = async (id: number): Promise<void> => {
 
 export const fetchDowntimeTypes = async (): Promise<DowntimeType[]> => {
   try {
-    const { data, error } = await supabase.from('downtime_types').select('*').order('description');
+    const orgId = await getCurrentOrgId();
+    const { data, error } = await supabase.from('downtime_types').select('*').eq('organization_id', orgId).order('description');
     if (error || !data) return [];
     return data.map((d: any) => ({
       id: d.id,
@@ -456,7 +466,8 @@ export const deleteDowntimeType = async (id: string): Promise<void> => {
 
 export const fetchScrapReasons = async (): Promise<ScrapReason[]> => {
   try {
-    const { data, error } = await supabase.from('scrap_reasons').select('*').eq('active', true).order('description');
+    const orgId = await getCurrentOrgId();
+    const { data, error } = await supabase.from('scrap_reasons').select('*').eq('active', true).eq('organization_id', orgId).order('description');
     return data.map((d: any) => ({
       id: d.id,
       description: d.description,
@@ -493,7 +504,8 @@ export const deleteScrapReason = async (id: string): Promise<void> => {
 
 export const fetchWorkShifts = async (): Promise<WorkShift[]> => {
   try {
-    const { data, error } = await supabase.from('work_shifts').select('*').eq('active', true).order('start_time');
+    const orgId = await getCurrentOrgId();
+    const { data, error } = await supabase.from('work_shifts').select('*').eq('active', true).eq('organization_id', orgId).order('start_time');
     if (error || !data) return [];
     return data.map((d: any) => ({ id: d.id, name: d.name, startTime: d.start_time, endTime: d.end_time, active: d.active, sector: d.sector }));
   } catch (e) { return []; }
@@ -542,7 +554,8 @@ import { ProductTypeDefinition } from '../types';
 
 export const fetchProductTypes = async (): Promise<ProductTypeDefinition[]> => {
   try {
-    const { data, error } = await supabase.from('product_types').select('*').eq('active', true).order('name');
+    const orgId = await getCurrentOrgId();
+    const { data, error } = await supabase.from('product_types').select('*').eq('active', true).eq('organization_id', orgId).order('name');
     if (error || !data) return [];
     return data.map((d: any) => ({
       id: d.id,

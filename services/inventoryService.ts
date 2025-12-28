@@ -1,5 +1,6 @@
 
 import { supabase } from './supabaseClient';
+import { getCurrentOrgId } from './auth';
 import { RawMaterial, ProductBOM, InventoryTransaction, Supplier, PurchaseOrder, PurchaseOrderItem, ShippingOrder, ShippingItem, ProductCostSummary, ProductionEntry } from '../types';
 import { formatError } from './utils';
 
@@ -7,7 +8,9 @@ import { formatError } from './utils';
 
 export const fetchMaterials = async (): Promise<RawMaterial[]> => {
     try {
-        const { data, error } = await supabase.from('raw_materials').select('*').order('name');
+        const orgId = await getCurrentOrgId();
+        if (!orgId) return [];
+        const { data, error } = await supabase.from('raw_materials').select('*').eq('organization_id', orgId).order('name');
         if (error) return [];
         return data.map((d: any) => ({
             id: d.id,
@@ -24,6 +27,9 @@ export const fetchMaterials = async (): Promise<RawMaterial[]> => {
 };
 
 export const saveMaterial = async (mat: RawMaterial): Promise<void> => {
+    const orgId = await getCurrentOrgId();
+    if (!orgId) throw new Error("Organização não identificada. Faça login novamente.");
+
     const dbMat = {
         code: mat.code,
         name: mat.name,
@@ -32,18 +38,19 @@ export const saveMaterial = async (mat: RawMaterial): Promise<void> => {
         min_stock: mat.minStock,
         unit_cost: mat.unitCost,
         category: mat.category,
-        group_name: mat.group
+        group_name: mat.group,
+        organization_id: orgId
     };
 
     const payload = mat.id ? { ...dbMat, id: mat.id } : dbMat;
-    const { error } = await supabase.from('raw_materials').upsert([payload], { onConflict: 'code' });
+
+    // UPSERT using the NEW composite key (organization_id, code)
+    // If we only use 'code', it fails because the constraint is now (organization_id, code).
+    const { error } = await supabase.from('raw_materials').upsert([payload], { onConflict: 'organization_id, code' });
 
     if (error) {
-        console.warn("Possible missing column 'group_name'. Retrying with legacy schema.");
-        const legacyPayload = { ...payload };
-        delete (legacyPayload as any).group_name;
-        const { error: legacyError } = await supabase.from('raw_materials').upsert([legacyPayload], { onConflict: 'code' });
-        if (legacyError) throw legacyError;
+        console.error("Erro ao salvar material:", error);
+        throw error;
     }
 };
 
@@ -58,7 +65,8 @@ export const deleteMaterial = async (id: string): Promise<void> => {
 
 export const fetchBOM = async (productCode: string): Promise<ProductBOM[]> => {
     try {
-        const { data, error } = await supabase.from('product_bom').select('*, material:raw_materials(*)').eq('product_code', productCode);
+        const orgId = await getCurrentOrgId();
+        const { data, error } = await supabase.from('product_bom').select('*, material:raw_materials(*)').eq('product_code', productCode).eq('organization_id', orgId);
         if (error) return [];
         return data.map((d: any) => ({
             id: d.id, productCode: d.product_code, materialId: d.material_id, quantityRequired: d.quantity_required,
@@ -69,7 +77,8 @@ export const fetchBOM = async (productCode: string): Promise<ProductBOM[]> => {
 
 export const fetchAllBOMs = async (): Promise<ProductBOM[]> => {
     try {
-        const { data, error } = await supabase.from('product_bom').select('*, material:raw_materials(*)');
+        const orgId = await getCurrentOrgId();
+        const { data, error } = await supabase.from('product_bom').select('*, material:raw_materials(*)').eq('organization_id', orgId);
         if (error) return [];
         return data.map((d: any) => ({
             id: d.id, productCode: d.product_code, materialId: d.material_id, quantityRequired: d.quantity_required,
@@ -79,8 +88,14 @@ export const fetchAllBOMs = async (): Promise<ProductBOM[]> => {
 };
 
 export const saveBOM = async (bom: Omit<ProductBOM, 'material'>): Promise<void> => {
+    const orgId = await getCurrentOrgId();
     if (bom.id) await supabase.from('product_bom').update({ quantity_required: bom.quantityRequired }).eq('id', bom.id);
-    else await supabase.from('product_bom').insert([{ product_code: bom.productCode, material_id: bom.materialId, quantity_required: bom.quantityRequired }]);
+    else await supabase.from('product_bom').insert([{
+        product_code: bom.productCode,
+        material_id: bom.materialId,
+        quantity_required: bom.quantityRequired,
+        organization_id: orgId
+    }]);
 };
 
 export const deleteBOMItem = async (id: string): Promise<void> => {
@@ -91,12 +106,21 @@ export const deleteBOMItem = async (id: string): Promise<void> => {
 
 export const fetchSuppliers = async (): Promise<Supplier[]> => {
     try {
-        const { data, error } = await supabase.from('suppliers').select('*').order('name');
+        const orgId = await getCurrentOrgId();
+        const { data, error } = await supabase.from('suppliers').select('*').eq('organization_id', orgId).order('name');
         return (data || []).map((d: any) => ({ id: d.id, name: d.name, contactName: d.contact_name, email: d.email, phone: d.phone }));
     } catch (e) { return []; }
 };
 export const saveSupplier = async (supplier: Supplier): Promise<void> => {
-    const dbSup = { name: supplier.name, contact_name: supplier.contactName, email: supplier.email, phone: supplier.phone };
+    const orgId = await getCurrentOrgId();
+    if (!orgId) throw new Error("Organização não identificada.");
+    const dbSup = {
+        name: supplier.name,
+        contact_name: supplier.contactName,
+        email: supplier.email,
+        phone: supplier.phone,
+        organization_id: orgId
+    };
     if (supplier.id) await supabase.from('suppliers').update(dbSup).eq('id', supplier.id);
     else await supabase.from('suppliers').insert([dbSup]);
 };
@@ -104,7 +128,8 @@ export const deleteSupplier = async (id: string): Promise<void> => { await supab
 
 export const fetchPurchaseOrders = async (): Promise<PurchaseOrder[]> => {
     try {
-        const { data, error } = await supabase.from('purchase_orders').select('*, supplier:suppliers(*)').order('created_at', { ascending: false });
+        const orgId = await getCurrentOrgId();
+        const { data, error } = await supabase.from('purchase_orders').select('*, supplier:suppliers(*)').eq('organization_id', orgId).order('created_at', { ascending: false });
         return (data || []).map((d: any) => ({ id: d.id, supplierId: d.supplier_id, status: d.status, dateCreated: d.created_at, dateExpected: d.date_expected, notes: d.notes, supplier: d.supplier ? { id: d.supplier.id, name: d.supplier.name, contactName: d.supplier.contact_name, email: d.supplier.email, phone: d.supplier.phone } : undefined }));
     } catch (e) { return []; }
 };
@@ -115,12 +140,26 @@ export const fetchPurchaseItems = async (orderId: string): Promise<PurchaseOrder
     } catch (e) { return []; }
 };
 export const savePurchaseOrder = async (order: Partial<PurchaseOrder>): Promise<string> => {
-    const dbOrder = { supplier_id: order.supplierId, status: order.status, date_expected: order.dateExpected, notes: order.notes };
+    const orgId = await getCurrentOrgId();
+    const dbOrder = {
+        supplier_id: order.supplierId,
+        status: order.status,
+        date_expected: order.dateExpected,
+        notes: order.notes,
+        organization_id: orgId
+    };
     if (order.id) { await supabase.from('purchase_orders').update(dbOrder).eq('id', order.id); return order.id; }
     else { const { data } = await supabase.from('purchase_orders').insert([dbOrder]).select().single(); return data.id; }
 };
 export const savePurchaseItem = async (item: Partial<PurchaseOrderItem>): Promise<void> => {
-    await supabase.from('purchase_order_items').insert([{ order_id: item.orderId, material_id: item.materialId, quantity: item.quantity, unit_cost: item.unitCost }]);
+    const orgId = await getCurrentOrgId();
+    await supabase.from('purchase_order_items').insert([{
+        order_id: item.orderId,
+        material_id: item.materialId,
+        quantity: item.quantity,
+        unit_cost: item.unitCost,
+        organization_id: orgId
+    }]);
 };
 export const deletePurchaseItem = async (itemId: string): Promise<void> => { await supabase.from('purchase_order_items').delete().eq('id', itemId); };
 export const deletePurchaseOrder = async (orderId: string): Promise<void> => { await supabase.from('purchase_order_items').delete().eq('order_id', orderId); await supabase.from('purchase_orders').delete().eq('id', orderId); };
@@ -132,7 +171,8 @@ export const receivePurchaseOrder = async (orderId: string): Promise<void> => {
 
 export const fetchInventoryTransactions = async (): Promise<InventoryTransaction[]> => {
     try {
-        const { data: trxData } = await supabase.from('inventory_transactions').select('*').order('created_at', { ascending: false }).limit(100);
+        const orgId = await getCurrentOrgId();
+        const { data: trxData } = await supabase.from('inventory_transactions').select('*').eq('organization_id', orgId).order('created_at', { ascending: false }).limit(100);
         if (!trxData) return [];
         const materialIds = [...new Set(trxData.map((t: any) => t.material_id).filter(Boolean))];
         const { data: matData } = await supabase.from('raw_materials').select('*').in('id', materialIds);
@@ -150,12 +190,14 @@ export const fetchMaterialTransactions = async (materialId: string): Promise<Inv
 
 export const processStockTransaction = async (trx: Omit<InventoryTransaction, 'id' | 'createdAt' | 'material'>, newUnitCost?: number): Promise<void> => {
     // Insert the transaction. The database trigger 'trg_update_stock' will automatically update the raw_materials.current_stock.
+    const orgId = await getCurrentOrgId();
     const { error } = await supabase.from('inventory_transactions').insert([{
         material_id: trx.materialId,
         type: trx.type,
         quantity: trx.quantity,
         related_entry_id: trx.relatedEntryId,
-        notes: trx.notes || null
+        notes: trx.notes || null,
+        organization_id: orgId
     }]);
 
     if (error) throw error;
@@ -222,11 +264,19 @@ export const processScrapGeneration = async (entry: ProductionEntry): Promise<vo
 
 // --- LOGISTICS ---
 export const fetchShippingOrders = async (): Promise<ShippingOrder[]> => {
-    const { data } = await supabase.from('shipping_orders').select('*').order('created_at', { ascending: false });
+    const orgId = await getCurrentOrgId();
+    const { data } = await supabase.from('shipping_orders').select('*').eq('organization_id', orgId).order('created_at', { ascending: false });
     return (data || []).map((d: any) => ({ id: d.id, customerName: d.customer_name, orderNumber: d.order_number, status: d.status, scheduledDate: d.scheduled_date }));
 };
 export const saveShippingOrder = async (order: ShippingOrder): Promise<string> => {
-    const dbOrder = { customer_name: order.customerName, order_number: order.orderNumber, status: order.status, scheduled_date: order.scheduledDate };
+    const orgId = await getCurrentOrgId();
+    const dbOrder = {
+        customer_name: order.customerName,
+        order_number: order.orderNumber,
+        status: order.status,
+        scheduled_date: order.scheduledDate,
+        organization_id: orgId
+    };
     if (order.id) { await supabase.from('shipping_orders').update(dbOrder).eq('id', order.id); return order.id; }
     else { const { data } = await supabase.from('shipping_orders').insert([dbOrder]).select().single(); return data.id; }
 };
@@ -235,7 +285,15 @@ export const fetchShippingItems = async (orderId: string): Promise<ShippingItem[
     const { data } = await supabase.from('shipping_items').select('*, product:products(*)').eq('order_id', orderId);
     return (data || []).map((d: any) => ({ id: d.id, orderId: d.order_id, productCode: d.product_code, quantity: d.quantity, product: d.product ? { codigo: d.product.code, produto: d.product.name, descricao: d.product.description, pesoLiquido: d.product.net_weight, custoUnit: d.product.unit_cost } : undefined }));
 };
-export const saveShippingItem = async (item: Omit<ShippingItem, 'product'>): Promise<void> => { await supabase.from('shipping_items').insert([{ order_id: item.orderId, product_code: item.productCode, quantity: item.quantity }]); };
+export const saveShippingItem = async (item: Omit<ShippingItem, 'product'>): Promise<void> => {
+    const orgId = await getCurrentOrgId();
+    await supabase.from('shipping_items').insert([{
+        order_id: item.orderId,
+        product_code: item.productCode,
+        quantity: item.quantity,
+        organization_id: orgId
+    }]);
+};
 export const deleteShippingItem = async (id: string): Promise<void> => { await supabase.from('shipping_items').delete().eq('id', id); };
 
 export const fetchProductCosts = async (): Promise<ProductCostSummary[]> => {

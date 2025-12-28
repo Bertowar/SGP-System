@@ -333,7 +333,7 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                 {!!initialData && (
                     <button
                         type="button"
-                        onClick={() => calculateCost(Number(code))}
+                        onClick={() => calculateCost(code)}
                         className="absolute right-2 top-8 p-1 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded"
                         title="Recalcular da Ficha Técnica"
                     >

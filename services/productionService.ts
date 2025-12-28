@@ -401,6 +401,7 @@ export const fetchProductionOrders = async (): Promise<ProductionOrder[]> => {
 };
 
 export const saveProductionOrder = async (order: Partial<ProductionOrder>): Promise<void> => {
+    const orgId = await getCurrentOrgId();
     const dbOrder = {
         id: order.id,
         product_code: order.productCode,
@@ -411,7 +412,8 @@ export const saveProductionOrder = async (order: Partial<ProductionOrder>): Prom
         status: order.status,
         priority: order.priority,
         notes: order.notes,
-        meta_data: order.metaData || null
+        meta_data: order.metaData || null,
+        organization_id: orgId
     };
 
     let { error } = await supabase.from('production_orders').upsert([dbOrder]);
