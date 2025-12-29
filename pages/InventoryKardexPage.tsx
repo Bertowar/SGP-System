@@ -16,7 +16,7 @@ const InventoryKardexPage: React.FC = () => {
     const [selectedMaterialId, setSelectedMaterialId] = useState('');
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState(false);
-    
+
     // Filters
     const today = new Date().toISOString().split('T')[0];
     const firstDay = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
@@ -45,11 +45,11 @@ const InventoryKardexPage: React.FC = () => {
 
             // Fetch ALL history (newest first)
             const transactions = await fetchMaterialTransactions(selectedMaterialId);
-            
+
             // Calculate running balance (Backwards Strategy)
             // Starting Point: Current Stock (known)
             let currentBalance = mat?.currentStock || 0;
-            
+
             const processed: KardexEntry[] = transactions.map(trx => {
                 const qty = Number(trx.quantity);
                 let balanceAfter = currentBalance;
@@ -76,7 +76,7 @@ const InventoryKardexPage: React.FC = () => {
                     // We will mark BalanceBefore as "Unknown" or derive it from next iteration?
                     // Let's rely on the chain. 
                     // Ideally, we'd process Forward from 0, but we don't have infinite history.
-                    
+
                     // Simplified: We accept the calculated stream.
                     balanceBefore = balanceAfter; // Placeholder
                 }
@@ -92,9 +92,9 @@ const InventoryKardexPage: React.FC = () => {
             });
 
             // Filter by date range
-            const start = new Date(startDate);
-            const end = new Date(endDate);
-            end.setHours(23, 59, 59, 999);
+            // Filter by date range (Force Local Time Boundaries)
+            const start = new Date(startDate + 'T00:00:00');
+            const end = new Date(endDate + 'T23:59:59.999');
 
             const filtered = processed.filter(t => {
                 const d = new Date(t.createdAt);
@@ -121,7 +121,7 @@ const InventoryKardexPage: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                     <div className="md:col-span-2">
                         <label className="text-sm font-bold text-slate-700 block mb-1">Material</label>
-                        <select 
+                        <select
                             className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
                             value={selectedMaterialId}
                             onChange={e => setSelectedMaterialId(e.target.value)}
@@ -140,7 +140,7 @@ const InventoryKardexPage: React.FC = () => {
                     </div>
                 </div>
                 <div className="mt-4 flex justify-end">
-                    <button 
+                    <button
                         onClick={generateKardex}
                         disabled={!selectedMaterialId || generating}
                         className="bg-brand-600 text-white px-6 py-2 rounded-lg font-bold flex items-center hover:bg-brand-700 disabled:opacity-50"
@@ -161,7 +161,7 @@ const InventoryKardexPage: React.FC = () => {
                             Saldo Atual: <b>{selectedMatDetails.currentStock} {selectedMatDetails.unit}</b>
                         </span>
                     </div>
-                    
+
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-white text-slate-600 border-b border-slate-200">
@@ -180,20 +180,23 @@ const InventoryKardexPage: React.FC = () => {
                                             {new Date(trx.createdAt).toLocaleString()}
                                         </td>
                                         <td className="px-6 py-3 text-center">
-                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                                                trx.type === 'IN' ? 'bg-green-100 text-green-700' :
+                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase ${trx.type === 'IN' ? 'bg-green-100 text-green-700' :
                                                 trx.type === 'OUT' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
-                                            }`}>
-                                                {trx.type === 'IN' ? <ArrowDownCircle size={12} className="mr-1"/> : trx.type === 'OUT' ? <ArrowUpCircle size={12} className="mr-1"/> : <RefreshCw size={12} className="mr-1"/>}
+                                                }`}>
+                                                {trx.type === 'IN' ? <ArrowDownCircle size={12} className="mr-1" /> : trx.type === 'OUT' ? <ArrowUpCircle size={12} className="mr-1" /> : <RefreshCw size={12} className="mr-1" />}
                                                 {trx.type}
                                             </span>
                                         </td>
                                         <td className="px-6 py-3 text-slate-700 max-w-md truncate">
                                             {trx.relatedEntryId ? 'Baixa Automática (Produção)' : trx.notes || '-'}
+                                            {trx.createdBy && (
+                                                <span className="block text-[10px] text-slate-400 mt-1">
+                                                    Usuário: {trx.createdBy}
+                                                </span>
+                                            )}
                                         </td>
-                                        <td className={`px-6 py-3 text-right font-bold ${
-                                            trx.type === 'IN' ? 'text-green-600' : trx.type === 'OUT' ? 'text-orange-600' : 'text-blue-600'
-                                        }`}>
+                                        <td className={`px-6 py-3 text-right font-bold ${trx.type === 'IN' ? 'text-green-600' : trx.type === 'OUT' ? 'text-orange-600' : 'text-blue-600'
+                                            }`}>
                                             {trx.type === 'OUT' ? '-' : ''}{Number(trx.quantity).toLocaleString()}
                                         </td>
                                         <td className="px-6 py-3 text-right font-mono font-medium text-slate-600 bg-slate-50/50">
@@ -206,7 +209,7 @@ const InventoryKardexPage: React.FC = () => {
                     </div>
                 </div>
             )}
-            
+
             {selectedMatDetails && kardexData.length === 0 && !generating && (
                 <div className="p-12 text-center bg-white rounded-xl border border-dashed border-slate-300 text-slate-400">
                     <FileText size={48} className="mx-auto mb-4 opacity-20" />

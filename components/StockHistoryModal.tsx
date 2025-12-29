@@ -51,40 +51,46 @@ export const StockHistoryModal: React.FC<StockHistoryModalProps> = ({
                         <table className="w-full text-sm text-left">
                             <thead className="bg-white text-slate-600 font-semibold border-b sticky top-0 z-10 shadow-sm">
                                 <tr>
-                                    <th className="px-6 py-3 bg-slate-50">Data/Hora</th>
-                                    {!selectedMat && <th className="px-6 py-3 bg-slate-50">Item</th>}
-                                    <th className="px-6 py-3 bg-slate-50 text-center">Tipo</th>
-                                    <th className="px-6 py-3 bg-slate-50 text-right">Qtd</th>
-                                    <th className="px-6 py-3 bg-slate-50">Observações / Usuário</th>
+                                    <th className="px-3 py-3 bg-slate-50 w-24">Data/Hora</th>
+                                    {!selectedMat && <th className="px-3 py-3 bg-slate-50 w-40">Item</th>}
+                                    <th className="px-3 py-3 bg-slate-50 text-center w-24">Tipo</th>
+                                    <th className="px-3 py-3 bg-slate-50 text-right w-24">Qtd</th>
+                                    <th className="px-3 py-3 bg-slate-50">Observações / Usuário</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
                                 {historyItems.map((item) => (
                                     <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                                        <td className="px-6 py-3 text-slate-500 font-mono text-xs whitespace-nowrap">
-                                            {new Date(item.createdAt).toLocaleString('pt-BR')}
+                                        <td className="px-3 py-3 text-slate-500 font-mono text-xs whitespace-nowrap">
+                                            <div className="flex flex-col">
+                                                <span className="font-bold text-slate-700">{new Date(item.createdAt).toLocaleDateString('pt-BR')}</span>
+                                                <span className="text-[10px] text-slate-400">{new Date(item.createdAt).toLocaleTimeString('pt-BR')}</span>
+                                            </div>
                                         </td>
                                         {!selectedMat && (
-                                            <td className="px-6 py-3 font-medium text-slate-700">
+                                            <td className="px-3 py-3 font-medium text-slate-700">
                                                 {item.material?.name || '-'} <span className="text-xs text-slate-400 block font-normal">{item.material?.code}</span>
                                             </td>
                                         )}
-                                        <td className="px-6 py-3 text-center">
-                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${item.type === 'IN' ? 'bg-green-100 text-green-700' :
+                                        <td className="px-3 py-3 text-center">
+                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${item.type === 'IN' ? 'bg-green-100 text-green-700' :
                                                 item.type === 'OUT' ? 'bg-red-100 text-red-700' :
                                                     'bg-blue-100 text-blue-700'
                                                 }`}>
                                                 {item.type === 'IN' ? 'ENTRADA' : item.type === 'OUT' ? 'SAÍDA' : 'AJUSTE'}
                                             </span>
                                         </td>
-                                        <td className={`px-6 py-3 text-right font-bold ${item.type === 'IN' ? 'text-green-600' :
+                                        <td className={`px-3 py-3 text-right font-bold ${item.type === 'IN' ? 'text-green-600' :
                                             item.type === 'OUT' ? 'text-red-600' :
                                                 'text-blue-600'
                                             }`}>
                                             {item.type === 'OUT' ? '-' : '+'}{Number(item.quantity).toLocaleString('pt-BR')}
                                         </td>
-                                        <td className="px-6 py-3 text-slate-600 max-w-xs truncate" title={item.notes}>
+                                        <td className="px-3 py-3 text-slate-600 max-w-xs truncate" title={item.notes}>
                                             {item.notes || '-'}
+                                            {item.createdBy && (
+                                                <span className="block text-xs text-slate-400 mt-1">Por: {item.createdBy}</span>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}

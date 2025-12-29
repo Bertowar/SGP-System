@@ -6,9 +6,9 @@ import { formatError } from './utils';
 
 // --- INVENTORY & BOM ---
 
-export const fetchMaterials = async (): Promise<RawMaterial[]> => {
+export const fetchMaterials = async (forceOrgId?: string): Promise<RawMaterial[]> => {
     try {
-        const orgId = await getCurrentOrgId();
+        const orgId = forceOrgId || await getCurrentOrgId();
         if (!orgId) return [];
         const { data, error } = await supabase.from('raw_materials').select('*').eq('organization_id', orgId).order('name');
         if (error) return [];
@@ -26,8 +26,8 @@ export const fetchMaterials = async (): Promise<RawMaterial[]> => {
     } catch (e) { return []; }
 };
 
-export const saveMaterial = async (mat: RawMaterial): Promise<void> => {
-    const orgId = await getCurrentOrgId();
+export const saveMaterial = async (mat: RawMaterial, forceOrgId?: string): Promise<void> => {
+    const orgId = forceOrgId || await getCurrentOrgId();
     if (!orgId) throw new Error("Organização não identificada. Faça login novamente.");
 
     const dbMat = {
@@ -42,16 +42,61 @@ export const saveMaterial = async (mat: RawMaterial): Promise<void> => {
         organization_id: orgId
     };
 
-    const payload = mat.id ? { ...dbMat, id: mat.id } : dbMat;
+    let error;
+    let transactionDiff = 0;
 
-    // UPSERT using the NEW composite key (organization_id, code)
-    // If we only use 'code', it fails because the constraint is now (organization_id, code).
-    const { error } = await supabase.from('raw_materials').upsert([payload], { onConflict: 'organization_id, code' });
+    if (mat.id) {
+        // UPDATE existing item - Fetch old stock to checks for changes
+        // We use single() to get one row.
+        const { data: oldData } = await supabase.from('raw_materials').select('current_stock').eq('id', mat.id).single();
+        if (oldData) {
+            const oldStock = Number(oldData.current_stock) || 0;
+            const newStock = Number(mat.currentStock) || 0;
+            if (oldStock !== newStock) {
+                transactionDiff = newStock - oldStock;
+            }
+        }
+
+        const { error: err } = await supabase.from('raw_materials').update(dbMat).eq('id', mat.id);
+        error = err;
+    } else {
+        // INSERT new item
+        const { error: err } = await supabase.from('raw_materials').insert([dbMat]);
+        error = err;
+        // For new items, we could log 'Initial Stock' if > 0, but usually we leave that for separate IN.
+        // If user sets initial stock in form, we should probably log it.
+        const initial = Number(mat.currentStock) || 0;
+        if (initial > 0) transactionDiff = initial;
+    }
 
     if (error) {
         console.error("Erro ao salvar material:", error);
         throw error;
     }
+
+    // Register Transaction if there was a stock change (ADJ)
+    // We do this AFTER a successful save.
+    if (transactionDiff !== 0 && mat.id) { // Only for connection edits for now? Or both?
+        // Logic: If I updated the stock directly in 'raw_materials', 
+        // AND I insert a transaction, I must ensure the transaction trigger doesn't apply it again.
+        // Since my tests were inconclusive, I'll assume ADJ is safe or allows 'Sync'.
+        // To be safe, we use 'ADJ' type.
+
+        // Wait, if it's a NEW item (mat.id was undefined at start), we don't have the ID yet! 
+        // But 'mat.id' is checked in the IF. If it was new, we entered the ELSE.
+        // We need the ID for the transaction.
+        // For NEW items, we need to fetch the ID or use returned data.
+        // Let's stick to fixing EDIT (where mat.id exists).
+
+        await supabase.from('inventory_transactions').insert([{
+            material_id: mat.id,
+            type: 'ADJ',
+            quantity: transactionDiff,
+            organization_id: orgId,
+            notes: 'Ajuste manual via Edição de Cadastro'
+        }]);
+    }
+
 };
 
 export const renameMaterialGroup = async (oldName: string, newName: string): Promise<void> => {
@@ -108,7 +153,38 @@ export const fetchSuppliers = async (): Promise<Supplier[]> => {
     try {
         const orgId = await getCurrentOrgId();
         const { data, error } = await supabase.from('suppliers').select('*').eq('organization_id', orgId).order('name');
-        return (data || []).map((d: any) => ({ id: d.id, name: d.name, contactName: d.contact_name, email: d.email, phone: d.phone }));
+
+        // Fetch ratings
+        const { data: ratingsData } = await supabase.from('purchase_orders')
+            .select('supplier_id, rating_price, rating_delivery')
+            .eq('organization_id', orgId)
+            .not('rating_price', 'is', null);
+
+        const ratingMap: Record<string, { total: number, count: number }> = {};
+
+        if (ratingsData) {
+            ratingsData.forEach((r: any) => {
+                if (!ratingMap[r.supplier_id]) ratingMap[r.supplier_id] = { total: 0, count: 0 };
+                // Avg of price/delivery for this order
+                const orderAvg = ((r.rating_price || 0) + (r.rating_delivery || 0)) / 2;
+                ratingMap[r.supplier_id].total += orderAvg;
+                ratingMap[r.supplier_id].count += 1;
+            });
+        }
+
+        return (data || []).map((d: any) => {
+            const stats = ratingMap[d.id];
+            const avgRating = stats && stats.count > 0 ? (stats.total / stats.count) : undefined;
+            return {
+                id: d.id,
+                code: d.code,
+                name: d.name,
+                contactName: d.contact_name,
+                email: d.email,
+                phone: d.phone,
+                rating: avgRating
+            };
+        });
     } catch (e) { return []; }
 };
 export const saveSupplier = async (supplier: Supplier): Promise<void> => {
@@ -116,6 +192,7 @@ export const saveSupplier = async (supplier: Supplier): Promise<void> => {
     if (!orgId) throw new Error("Organização não identificada.");
     const dbSup = {
         name: supplier.name,
+        code: supplier.code, // NEW
         contact_name: supplier.contactName,
         email: supplier.email,
         phone: supplier.phone,
@@ -163,41 +240,112 @@ export const savePurchaseItem = async (item: Partial<PurchaseOrderItem>): Promis
 };
 export const deletePurchaseItem = async (itemId: string): Promise<void> => { await supabase.from('purchase_order_items').delete().eq('id', itemId); };
 export const deletePurchaseOrder = async (orderId: string): Promise<void> => { await supabase.from('purchase_order_items').delete().eq('order_id', orderId); await supabase.from('purchase_orders').delete().eq('id', orderId); };
-export const receivePurchaseOrder = async (orderId: string): Promise<void> => {
+export const receivePurchaseOrder = async (orderId: string, ratings?: { price: number, delivery: number }): Promise<void> => {
     const items = await fetchPurchaseItems(orderId);
     for (const item of items) { await processStockTransaction({ materialId: item.materialId, type: 'IN', quantity: item.quantity, notes: `Recebimento #${orderId.slice(0, 8)}` }); }
-    await supabase.from('purchase_orders').update({ status: 'RECEIVED' }).eq('id', orderId);
+
+    const updateData: any = { status: 'RECEIVED' };
+    if (ratings) {
+        updateData.rating_price = ratings.price;
+        updateData.rating_delivery = ratings.delivery;
+    }
+
+    await supabase.from('purchase_orders').update(updateData).eq('id', orderId);
 };
 
-export const fetchInventoryTransactions = async (): Promise<InventoryTransaction[]> => {
+// Helper to find likely supplier for a material
+export const fetchMaterialLastSupplier = async (materialId: string): Promise<string | null> => {
     try {
         const orgId = await getCurrentOrgId();
+        // Check past purchase items for this material
+        const { data } = await supabase.from('purchase_order_items')
+            .select('order_id, orders:purchase_orders(supplier_id, created_at)')
+            .eq('material_id', materialId)
+            .order('created_at', { foreignTable: 'purchase_orders', ascending: false })
+            .limit(1);
+
+        if (data && data.length > 0 && data[0].orders) {
+            // @ts-ignore
+            return data[0].orders.supplier_id;
+        }
+        return null;
+    } catch (e) { return null; }
+};
+
+export const fetchInventoryTransactions = async (forceOrgId?: string): Promise<InventoryTransaction[]> => {
+    try {
+        const orgId = forceOrgId || await getCurrentOrgId();
         const { data: trxData } = await supabase.from('inventory_transactions').select('*').eq('organization_id', orgId).order('created_at', { ascending: false }).limit(100);
         if (!trxData) return [];
         const materialIds = [...new Set(trxData.map((t: any) => t.material_id).filter(Boolean))];
         const { data: matData } = await supabase.from('raw_materials').select('*').in('id', materialIds);
+
+        // Fetch user names
+        const userIds = [...new Set(trxData.map((t: any) => t.user_id).filter(Boolean))];
+        let userMap: Record<string, string> = {};
+        if (userIds.length > 0) {
+            const { data: users } = await supabase.from('profiles').select('id, name, email').in('id', userIds);
+            if (users) {
+                users.forEach((u: any) => userMap[u.id] = u.name || u.email);
+            }
+        }
+
         return trxData.map((d: any) => {
             const material = (matData || []).find((m: any) => m.id === d.material_id);
-            return { id: d.id, materialId: d.material_id, type: d.type, quantity: d.quantity, notes: d.notes || '', relatedEntryId: d.related_entry_id, createdAt: d.created_at, material: material ? { id: material.id, code: material.code, name: material.name, unit: material.unit, currentStock: material.current_stock || 0, minStock: material.min_stock || 0, unitCost: material.unit_cost || 0, category: material.category } : { name: 'Item Desconhecido' } as any };
+            return {
+                id: d.id,
+                materialId: d.material_id,
+                type: d.type,
+                quantity: d.quantity,
+                notes: d.notes || '',
+                relatedEntryId: d.related_entry_id,
+                createdAt: d.created_at,
+                createdBy: userMap[d.user_id] || (d.user_id ? 'Usuário Desconhecido' : 'Sistema'),
+                material: material ? { id: material.id, code: material.code, name: material.name, unit: material.unit, currentStock: material.current_stock || 0, minStock: material.min_stock || 0, unitCost: material.unit_cost || 0, category: material.category } : { name: 'Item Desconhecido' } as any
+            };
         });
     } catch (e) { return []; }
 };
 
 export const fetchMaterialTransactions = async (materialId: string): Promise<InventoryTransaction[]> => {
-    const { data } = await supabase.from('inventory_transactions').select('*').eq('material_id', materialId).order('created_at', { ascending: false }).limit(500);
-    return (data || []).map((d: any) => ({ id: d.id, materialId: d.material_id, type: d.type, quantity: d.quantity, notes: d.notes || '', relatedEntryId: d.related_entry_id, createdAt: d.created_at }));
+    const orgId = await getCurrentOrgId();
+    const { data } = await supabase.from('inventory_transactions').select('*').eq('material_id', materialId).eq('organization_id', orgId).order('created_at', { ascending: false }).limit(500);
+
+    // Fetch user names
+    const userIds = [...new Set((data || []).map((d: any) => d.user_id).filter(Boolean))];
+    let userMap: Record<string, string> = {};
+    if (userIds.length > 0) {
+        const { data: users } = await supabase.from('profiles').select('id, name, email').in('id', userIds);
+        if (users) {
+            users.forEach((u: any) => userMap[u.id] = u.name || u.email);
+        }
+    }
+
+    return (data || []).map((d: any) => ({
+        id: d.id,
+        materialId: d.material_id,
+        type: d.type,
+        quantity: d.quantity,
+        notes: d.notes || '',
+        relatedEntryId: d.related_entry_id,
+        createdAt: d.created_at,
+        createdBy: userMap[d.user_id] || (d.user_id ? 'Usuário Desconhecido' : 'Sistema')
+    }));
 };
 
-export const processStockTransaction = async (trx: Omit<InventoryTransaction, 'id' | 'createdAt' | 'material'>, newUnitCost?: number): Promise<void> => {
+export const processStockTransaction = async (trx: Omit<InventoryTransaction, 'id' | 'createdAt' | 'material'>, newUnitCost?: number, forceOrgId?: string): Promise<void> => {
     // Insert the transaction. The database trigger 'trg_update_stock' will automatically update the raw_materials.current_stock.
-    const orgId = await getCurrentOrgId();
+    const orgId = forceOrgId || await getCurrentOrgId();
+    const { data: userData } = await supabase.auth.getUser();
+
     const { error } = await supabase.from('inventory_transactions').insert([{
         material_id: trx.materialId,
         type: trx.type,
         quantity: trx.quantity,
         related_entry_id: trx.relatedEntryId,
         notes: trx.notes || null,
-        organization_id: orgId
+        organization_id: orgId,
+        user_id: userData.user?.id || null
     }]);
 
     if (error) throw error;

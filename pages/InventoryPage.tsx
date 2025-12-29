@@ -105,8 +105,8 @@ const InventoryPage: React.FC = () => {
         setLoading(true);
         try {
             const [matData, trxData] = await Promise.all([
-                fetchMaterials(),
-                fetchInventoryTransactions()
+                fetchMaterials(user?.organizationId),
+                fetchInventoryTransactions(user?.organizationId)
             ]);
             setMaterials(matData);
             setTransactions(trxData);
@@ -118,7 +118,7 @@ const InventoryPage: React.FC = () => {
     };
 
     const handleRefreshHistory = async () => {
-        const trxData = await fetchInventoryTransactions();
+        const trxData = await fetchInventoryTransactions(user?.organizationId);
         setTransactions(trxData);
     };
 
@@ -231,7 +231,7 @@ const InventoryPage: React.FC = () => {
                 minStock: min,
                 currentStock: current,
                 group: finalGroup
-            });
+            }, user?.organizationId);
             setModalOpen(false);
             setEditingMat(null);
             loadData();
@@ -303,7 +303,7 @@ const InventoryPage: React.FC = () => {
                 type: trxType,
                 quantity: numQty,
                 notes: finalNote
-            }, newUnitCost);
+            }, newUnitCost, user?.organizationId);
 
             setTrxModalOpen(false);
             loadData();
@@ -408,7 +408,7 @@ const InventoryPage: React.FC = () => {
                         type: 'OUT',
                         quantity: parseFloat((comp.required * qty).toFixed(4)),
                         notes: `Montagem Kit ${opt.product.produto} (${qty} un)`
-                    });
+                    }, undefined, user?.organizationId);
                 }
             }
 
@@ -422,7 +422,7 @@ const InventoryPage: React.FC = () => {
                     type: 'IN',
                     quantity: qty,
                     notes: `Montagem Kit ${opt.product.produto}`
-                });
+                }, undefined, user?.organizationId);
                 alert("Montagem realizada com sucesso! Estoque atualizado.");
                 setKittingModalOpen(false);
                 loadData();

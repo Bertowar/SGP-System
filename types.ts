@@ -281,6 +281,7 @@ export interface InventoryTransaction {
   notes?: string;
   relatedEntryId?: string;
   createdAt: string;
+  createdBy?: string; // NEW: Name of user who created the transaction
   material?: RawMaterial; // For display
 }
 
@@ -288,7 +289,9 @@ export interface InventoryTransaction {
 
 export interface Supplier {
   id: string;
+  code?: string; // NEW
   name: string;
+  rating?: number; // NEW: Average rating (1-5)
   contactName?: string;
   email?: string;
   phone?: string;
@@ -305,6 +308,8 @@ export interface PurchaseOrder {
   notes?: string;
   supplier?: Supplier; // Join
   items?: PurchaseOrderItem[];
+  ratingPrice?: number; // NEW
+  ratingDelivery?: number; // NEW
 }
 
 export interface PurchaseOrderItem {

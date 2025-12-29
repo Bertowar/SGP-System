@@ -278,7 +278,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <div className={`flex-1 flex flex-col h-full min-w-0 ${maintenanceMode ? 'mt-6' : ''}`}>
 
                 {/* Header */}
-                <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shadow-sm z-10 shrink-0">
+                <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shadow-sm z-40 shrink-0">
                     <div className="flex items-center md:hidden">
                         <button onClick={() => setMobileMenuOpen(true)} className="p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-lg">
                             <Menu size={24} />

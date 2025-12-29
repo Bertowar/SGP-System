@@ -13,7 +13,12 @@ export const formatError = (e: any): string => {
         // Trata erros vindos do Supabase ou APIs (padrão Postgrest)
         if (typeof e === 'object') {
             const message = e.message || e.error_description || e.details || e.error?.message;
-            if (typeof message === 'string') return message;
+            if (typeof message === 'string') {
+                if (message.includes('duplicate key value') || message.includes('violates unique constraint')) {
+                    return "Já existe um registro com este código ou nome na sua organização.";
+                }
+                return message;
+            }
 
             // Caso seja um objeto sem campo de mensagem conhecido
             try {

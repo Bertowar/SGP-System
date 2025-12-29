@@ -1,15 +1,15 @@
 
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { fetchMaterials, fetchSuppliers, saveSupplier, deleteSupplier, fetchPurchaseOrders, savePurchaseOrder, deletePurchaseOrder, savePurchaseItem, deletePurchaseItem, fetchPurchaseItems, receivePurchaseOrder, formatError } from '../services/storage';
+import { fetchMaterials, fetchSuppliers, saveSupplier, deleteSupplier, fetchPurchaseOrders, savePurchaseOrder, deletePurchaseOrder, savePurchaseItem, deletePurchaseItem, fetchPurchaseItems, receivePurchaseOrder, formatError, fetchMaterialLastSupplier } from '../services/storage';
 import { RawMaterial, Supplier, PurchaseOrder, PurchaseOrderItem } from '../types';
-import { ShoppingCart, Plus, Users, Loader2, AlertCircle, Save, Trash2, CheckCircle, Package, Calendar, ArrowDownCircle, Edit, X } from 'lucide-react';
+import { ShoppingCart, Plus, Users, Loader2, AlertCircle, Save, Trash2, CheckCircle, Package, Calendar, ArrowDownCircle, Edit, X, Star } from 'lucide-react';
 import { Input } from '../components/Input';
 
 const PurchasePage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'suggestions' | 'orders' | 'suppliers'>('suggestions');
     const [loading, setLoading] = useState(true);
-    
+
     const [materials, setMaterials] = useState<RawMaterial[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [orders, setOrders] = useState<PurchaseOrder[]>([]);
@@ -17,20 +17,25 @@ const PurchasePage: React.FC = () => {
     // Modals
     const [supplierModalOpen, setSupplierModalOpen] = useState(false);
     const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
-    
+
     const [orderModalOpen, setOrderModalOpen] = useState(false);
     const [editingOrder, setEditingOrder] = useState<PurchaseOrder | null>(null);
     const [orderItems, setOrderItems] = useState<PurchaseOrderItem[]>([]);
-    
+
     // Order Form
     const [selSupplierId, setSelSupplierId] = useState('');
     const [dateExp, setDateExp] = useState('');
     const [notes, setNotes] = useState('');
-    
+
     // Add Item Form
     const [addItemMatId, setAddItemMatId] = useState('');
     const [addItemQty, setAddItemQty] = useState('');
     const [addItemCost, setAddItemCost] = useState('');
+
+    // Receiving Modal
+    const [receivingOrder, setReceivingOrder] = useState<PurchaseOrder | null>(null);
+    const [ratingPrice, setRatingPrice] = useState(5);
+    const [ratingDelivery, setRatingDelivery] = useState(5);
 
     useEffect(() => { loadData(); }, []);
 
@@ -60,7 +65,7 @@ const PurchasePage: React.FC = () => {
     // Supplier
     const handleSaveSupplier = async (e: React.FormEvent) => {
         e.preventDefault();
-        if(!editingSupplier) return;
+        if (!editingSupplier) return;
         try {
             await saveSupplier(editingSupplier);
             setSupplierModalOpen(false);
@@ -70,7 +75,7 @@ const PurchasePage: React.FC = () => {
     };
 
     const handleDeleteSupplier = async (id: string) => {
-        if(!confirm("Excluir fornecedor?")) return;
+        if (!confirm("Excluir fornecedor?")) return;
         try {
             await deleteSupplier(id);
             const s = await fetchSuppliers();
@@ -93,6 +98,10 @@ const PurchasePage: React.FC = () => {
             setDateExp('');
             setNotes('');
             setOrderItems([]);
+            // Clean add item form
+            setAddItemMatId('');
+            setAddItemQty('');
+            setAddItemCost('');
         }
         setOrderModalOpen(true);
     };
@@ -135,29 +144,66 @@ const PurchasePage: React.FC = () => {
     };
 
     const handleQuickOrder = async (material: RawMaterial) => {
-        // Quick shortcut to create a draft order for this item
-        // 1. Ask Supplier? Simplified: create blank draft then open modal
-        alert("Crie um novo pedido e adicione este item.");
+        // 1. Try to find last supplier
+        let supplierId = '';
+        try {
+            const last = await fetchMaterialLastSupplier(material.id);
+            if (last) supplierId = last;
+        } catch (e) { console.error(e); }
+
+        // 2. Pre-fill "Add Item" form (hidden until header saved)
+        setAddItemMatId(material.id);
+        const qty = material.suggestedQty > 0 ? material.suggestedQty : material.minStock;
+        setAddItemQty(qty.toFixed(2));
+        setAddItemCost(material.unitCost.toString());
+
+        // 3. Prepare New Order
+        setEditingOrder(null);
+        setSelSupplierId(supplierId);
+        setDateExp('');
+        setNotes(`Compra Automática: ${material.name}`);
+        setOrderItems([]);
+
+        // 4. Open UI
         setActiveTab('orders');
-        handleOpenOrder();
+        setOrderModalOpen(true);
     };
 
-    const handleReceiveOrder = async (orderId: string) => {
-        if (!confirm("Confirmar recebimento? Isso dará entrada automática no estoque.")) return;
+    const handleReceiveOrder = (order: PurchaseOrder) => {
+        setReceivingOrder(order);
+    };
+
+    const confirmReceiveOrder = async () => {
+        if (!receivingOrder) return;
         try {
-            await receivePurchaseOrder(orderId);
+            await receivePurchaseOrder(receivingOrder.id, { price: ratingPrice, delivery: ratingDelivery });
             alert("Estoque atualizado com sucesso!");
             setOrderModalOpen(false);
+            setReceivingOrder(null);
+            setRatingPrice(5);
+            setRatingDelivery(5);
             loadData();
-        } catch(e) { alert("Erro ao receber: " + formatError(e)); }
+        } catch (e) { alert("Erro ao receber: " + formatError(e)); }
+    };
+
+    const renderStars = (rating?: number) => {
+        if (!rating) return <span className="text-slate-300 text-xs">Sem avaliação</span>;
+        return (
+            <div className="flex text-yellow-400">
+                {[1, 2, 3, 4, 5].map(i => (
+                    <Star key={i} size={14} fill={i <= Math.round(rating) ? "currentColor" : "none"} className={i <= Math.round(rating) ? "" : "text-slate-300"} />
+                ))}
+                <span className="ml-1 text-xs text-slate-500 font-bold">{rating.toFixed(1)}</span>
+            </div>
+        );
     };
 
     const handleDeleteOrder = async (id: string) => {
-         if (!confirm("Excluir pedido?")) return;
-         try {
-             await deletePurchaseOrder(id);
-             loadData();
-         } catch(e) { alert("Erro: " + formatError(e)); }
+        if (!confirm("Excluir pedido?")) return;
+        try {
+            await deletePurchaseOrder(id);
+            loadData();
+        } catch (e) { alert("Erro: " + formatError(e)); }
     };
 
     if (loading) return <div className="p-8 text-center"><Loader2 className="animate-spin mx-auto" /></div>;
@@ -185,7 +231,7 @@ const PurchasePage: React.FC = () => {
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-h-[500px]">
-                
+
                 {/* SUGGESTIONS TAB */}
                 {activeTab === 'suggestions' && (
                     <div className="space-y-4">
@@ -236,15 +282,14 @@ const PurchasePage: React.FC = () => {
                                 <div key={o.id} onClick={() => handleOpenOrder(o)} className="border rounded-lg p-4 hover:shadow-md cursor-pointer transition-all bg-white relative group">
                                     <div className="flex justify-between items-start">
                                         <div>
-                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                                                o.status === 'RECEIVED' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'
-                                            }`}>
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${o.status === 'RECEIVED' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'
+                                                }`}>
                                                 {o.status === 'RECEIVED' ? 'Recebido' : 'Rascunho / Pendente'}
                                             </span>
                                             <h4 className="font-bold text-slate-800 mt-1">{o.supplier?.name || 'Fornecedor ñ encontrado'}</h4>
                                             <p className="text-xs text-slate-500">{new Date(o.dateCreated).toLocaleDateString()}</p>
                                         </div>
-                                        <Trash2 size={16} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => {e.stopPropagation(); handleDeleteOrder(o.id)}} />
+                                        <Trash2 size={16} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); handleDeleteOrder(o.id) }} />
                                     </div>
                                 </div>
                             ))}
@@ -258,14 +303,16 @@ const PurchasePage: React.FC = () => {
                     <div>
                         <div className="flex justify-between mb-4">
                             <h3 className="font-bold text-slate-700">Base de Fornecedores</h3>
-                            <button onClick={() => { setEditingSupplier({id: '', name: '', contactName: '', email: '', phone: ''}); setSupplierModalOpen(true); }} className="bg-brand-600 text-white px-3 py-1.5 rounded text-sm font-bold flex items-center hover:bg-brand-700">
+                            <button onClick={() => { setEditingSupplier({ id: '', code: '', name: '', contactName: '', email: '', phone: '' }); setSupplierModalOpen(true); }} className="bg-brand-600 text-white px-3 py-1.5 rounded text-sm font-bold flex items-center hover:bg-brand-700">
                                 <Plus size={16} className="mr-1" /> Novo Fornecedor
                             </button>
                         </div>
                         <table className="w-full text-sm text-left">
                             <thead className="bg-slate-50 text-slate-600 font-semibold border-b">
                                 <tr>
+                                    <th className="px-4 py-2">Código</th>
                                     <th className="px-4 py-2">Empresa</th>
+                                    <th className="px-4 py-2">Avaliação</th>
                                     <th className="px-4 py-2">Contato</th>
                                     <th className="px-4 py-2">Email / Telefone</th>
                                     <th className="px-4 py-2 text-right">Ação</th>
@@ -274,9 +321,11 @@ const PurchasePage: React.FC = () => {
                             <tbody className="divide-y">
                                 {suppliers.map(s => (
                                     <tr key={s.id} className="hover:bg-slate-50">
+                                        <td className="px-4 py-3 font-mono text-xs text-slate-500">{s.code || '-'}</td>
                                         <td className="px-4 py-3 font-bold text-slate-700">{s.name}</td>
+                                        <td className="px-4 py-3">{renderStars(s.rating)}</td>
                                         <td className="px-4 py-3 text-slate-600">{s.contactName}</td>
-                                        <td className="px-4 py-3 text-slate-500">{s.email} <br/> {s.phone}</td>
+                                        <td className="px-4 py-3 text-slate-500">{s.email} <br /> {s.phone}</td>
                                         <td className="px-4 py-3 text-right">
                                             <button onClick={() => { setEditingSupplier(s); setSupplierModalOpen(true); }} className="text-blue-600 hover:underline mr-3">Editar</button>
                                             <button onClick={() => handleDeleteSupplier(s.id)} className="text-red-500 hover:underline">Excluir</button>
@@ -295,10 +344,17 @@ const PurchasePage: React.FC = () => {
                     <div className="bg-white rounded-xl w-full max-w-md p-6">
                         <h3 className="font-bold text-lg mb-4">Dados do Fornecedor</h3>
                         <form onSubmit={handleSaveSupplier} className="space-y-4">
-                            <Input label="Empresa" value={editingSupplier.name} onChange={e => setEditingSupplier({...editingSupplier, name: e.target.value})} required />
-                            <Input label="Nome Contato" value={editingSupplier.contactName || ''} onChange={e => setEditingSupplier({...editingSupplier, contactName: e.target.value})} />
-                            <Input label="Email" type="email" value={editingSupplier.email || ''} onChange={e => setEditingSupplier({...editingSupplier, email: e.target.value})} />
-                            <Input label="Telefone" value={editingSupplier.phone || ''} onChange={e => setEditingSupplier({...editingSupplier, phone: e.target.value})} />
+                            <div className="grid grid-cols-3 gap-4">
+                                <div className="col-span-1">
+                                    <Input label="Código (Opcional)" value={editingSupplier.code || ''} onChange={e => setEditingSupplier({ ...editingSupplier, code: e.target.value })} placeholder="Ex: FOR-001" />
+                                </div>
+                                <div className="col-span-2">
+                                    <Input label="Empresa" value={editingSupplier.name} onChange={e => setEditingSupplier({ ...editingSupplier, name: e.target.value })} required />
+                                </div>
+                            </div>
+                            <Input label="Nome Contato" value={editingSupplier.contactName || ''} onChange={e => setEditingSupplier({ ...editingSupplier, contactName: e.target.value })} />
+                            <Input label="Email" type="email" value={editingSupplier.email || ''} onChange={e => setEditingSupplier({ ...editingSupplier, email: e.target.value })} />
+                            <Input label="Telefone" value={editingSupplier.phone || ''} onChange={e => setEditingSupplier({ ...editingSupplier, phone: e.target.value })} />
                             <div className="flex justify-end gap-2 pt-2">
                                 <button type="button" onClick={() => setSupplierModalOpen(false)} className="px-4 py-2 border rounded">Cancelar</button>
                                 <button type="submit" className="px-4 py-2 bg-brand-600 text-white rounded font-bold">Salvar</button>
@@ -316,14 +372,14 @@ const PurchasePage: React.FC = () => {
                             <h3 className="font-bold text-lg text-slate-800">
                                 {editingOrder ? 'Detalhes do Pedido' : 'Novo Pedido'}
                             </h3>
-                            <button onClick={() => setOrderModalOpen(false)}><X className="text-slate-400 hover:text-slate-600"/></button>
+                            <button onClick={() => setOrderModalOpen(false)}><X className="text-slate-400 hover:text-slate-600" /></button>
                         </div>
-                        
+
                         <div className="flex-1 overflow-y-auto p-6 space-y-6">
                             <form onSubmit={handleCreateOrder} className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-100">
                                 <div className="md:col-span-1">
                                     <label className="text-sm font-bold text-slate-700">Fornecedor</label>
-                                    <select 
+                                    <select
                                         className="w-full p-2 border rounded text-sm mt-1"
                                         value={selSupplierId}
                                         onChange={e => setSelSupplierId(e.target.value)}
@@ -346,12 +402,12 @@ const PurchasePage: React.FC = () => {
                                     <div className="flex justify-between items-center border-b pb-2">
                                         <h4 className="font-bold text-slate-700">Itens do Pedido</h4>
                                         {editingOrder.status !== 'RECEIVED' && (
-                                            <button onClick={() => handleReceiveOrder(editingOrder.id)} className="text-xs bg-green-600 text-white px-3 py-1.5 rounded font-bold hover:bg-green-700 flex items-center">
+                                            <button onClick={() => handleReceiveOrder(editingOrder)} className="text-xs bg-green-600 text-white px-3 py-1.5 rounded font-bold hover:bg-green-700 flex items-center">
                                                 <ArrowDownCircle size={14} className="mr-1" /> Receber Pedido (Entrada Estoque)
                                             </button>
                                         )}
                                     </div>
-                                    
+
                                     <table className="w-full text-sm text-left">
                                         <thead className="bg-slate-50 text-slate-600">
                                             <tr>
@@ -371,7 +427,7 @@ const PurchasePage: React.FC = () => {
                                                     <td className="px-4 py-2 text-right">R$ {(item.quantity * item.unitCost).toFixed(2)}</td>
                                                     <td className="px-4 py-2 text-right">
                                                         {editingOrder.status !== 'RECEIVED' && (
-                                                            <button onClick={async () => { await deletePurchaseItem(item.id); setOrderItems(await fetchPurchaseItems(editingOrder.id)); }} className="text-red-500"><Trash2 size={14}/></button>
+                                                            <button onClick={async () => { await deletePurchaseItem(item.id); setOrderItems(await fetchPurchaseItems(editingOrder.id)); }} className="text-red-500"><Trash2 size={14} /></button>
                                                         )}
                                                     </td>
                                                 </tr>
@@ -393,7 +449,7 @@ const PurchasePage: React.FC = () => {
                                                 <select className="w-full p-2 border rounded text-sm mt-1" value={addItemMatId} onChange={e => {
                                                     setAddItemMatId(e.target.value);
                                                     const mat = materials.find(m => m.id === e.target.value);
-                                                    if(mat) setAddItemCost(mat.unitCost.toString());
+                                                    if (mat) setAddItemCost(mat.unitCost.toString());
                                                 }}>
                                                     <option value="">Selecione...</option>
                                                     {materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -414,6 +470,49 @@ const PurchasePage: React.FC = () => {
                             )}
 
                             {!editingOrder?.id && <div className="text-center text-slate-400 border border-dashed py-8">Salve o cabeçalho para adicionar itens.</div>}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL RECEBIMENTO (AVALIAÇÃO) */}
+            {receivingOrder && (
+                <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl">
+                        <div className="text-center mb-6">
+                            <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <CheckCircle size={28} />
+                            </div>
+                            <h3 className="font-bold text-lg text-slate-800">Confirmar Recebimento</h3>
+                            <p className="text-sm text-slate-500">Avalie este fornecimento para finalizar.</p>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">Avaliação Preço ({ratingPrice}/5)</label>
+                                <div className="flex justify-between">
+                                    {[1, 2, 3, 4, 5].map(v => (
+                                        <button key={v} onClick={() => setRatingPrice(v)} className={`p-2 rounded-lg transition-all ${ratingPrice >= v ? 'bg-yellow-100 text-yellow-500' : 'bg-slate-100 text-slate-300'}`}>
+                                            <Star size={20} fill={ratingPrice >= v ? "currentColor" : "none"} />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">Avaliação Prazo / Entrega ({ratingDelivery}/5)</label>
+                                <div className="flex justify-between">
+                                    {[1, 2, 3, 4, 5].map(v => (
+                                        <button key={v} onClick={() => setRatingDelivery(v)} className={`p-2 rounded-lg transition-all ${ratingDelivery >= v ? 'bg-blue-100 text-blue-500' : 'bg-slate-100 text-slate-300'}`}>
+                                            <Star size={20} fill={ratingDelivery >= v ? "currentColor" : "none"} />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 mt-8">
+                            <button onClick={() => setReceivingOrder(null)} className="px-4 py-2 border border-slate-200 rounded-lg text-slate-600 font-bold hover:bg-slate-50">Cancelar</button>
+                            <button onClick={confirmReceiveOrder} className="px-4 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 shadow-lg shadow-green-200">Confirmar</button>
                         </div>
                     </div>
                 </div>

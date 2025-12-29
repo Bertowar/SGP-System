@@ -1,0 +1,3 @@
+--- SUSPICIOUS CONSTRAINTS ---
+Table: machines, Constraint: machines_pkey (PRIMARY KEY), Columns: code
+Table: products, Constraint: products_pkey (PRIMARY KEY), Columns: code
