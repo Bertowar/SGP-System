@@ -1,14 +1,16 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { fetchProducts, fetchMaterials, fetchBOM, saveBOM, deleteBOMItem, formatError } from '../services/storage';
+import { fetchProducts } from '../services/masterDataService';
+import { fetchMaterials, fetchBOM, saveBOM, deleteBOMItem } from '../services/inventoryService';
+import { formatError } from '../services/utils';
 import { Product, RawMaterial, ProductBOM, MaterialCategory } from '../types';
 import { Wrench, Plus, Trash2, Loader2, Edit, Save, X, Box, Zap, User, Hammer } from 'lucide-react';
 
 const BOMPage: React.FC = () => {
     const [products, setProducts] = useState<Product[]>([]);
     const [materials, setMaterials] = useState<RawMaterial[]>([]);
-    const [selectedProduct, setSelectedProduct] = useState<number | null>(null);
+    const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
     const [bomItems, setBomItems] = useState<ProductBOM[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadingBom, setLoadingBom] = useState(false);
@@ -37,7 +39,7 @@ const BOMPage: React.FC = () => {
         }
     }, [selectedProduct]);
 
-    const loadBOM = async (code: number) => {
+    const loadBOM = async (code: string) => {
         setLoadingBom(true);
         const data = await fetchBOM(code);
         setBomItems(data);

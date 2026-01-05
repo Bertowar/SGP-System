@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabaseClient';
+import { Navigate } from 'react-router-dom';
 import { inviteUser } from '../services/saasService';
 import { useAuth } from '../contexts/AuthContext';
 import { UserPlus, Users, Building, ShieldCheck } from 'lucide-react';
 
 export const OrganizationSettings: React.FC = () => {
-    const { user } = useAuth();
+    const { user, refreshProfile } = useAuth();
     const [members, setMembers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [inviteEmail, setInviteEmail] = useState('');
@@ -14,6 +15,11 @@ export const OrganizationSettings: React.FC = () => {
     const [msg, setMsg] = useState({ type: '', text: '' });
 
     useEffect(() => {
+        console.log("OrganizationSettings mounted. User:", user);
+        supabase.auth.getSession().then(({ data }) => {
+            console.log("OrganizationSettings explicit session check:", data.session);
+        });
+
         if (user?.organizationId) {
             fetchMembers();
         }
@@ -55,7 +61,112 @@ export const OrganizationSettings: React.FC = () => {
         }
     };
 
-    if (!user?.organizationId) return <div className="p-8">Você não pertence a uma organização.</div>;
+    const [newOrgName, setNewOrgName] = useState('');
+    const [creating, setCreating] = useState(false);
+
+    const handleCreateOrg = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!user) {
+            alert("Erro: Usuário não identificado. Tente atualizar a página.");
+            return;
+        }
+        if (!newOrgName.trim()) return;
+
+        setCreating(true);
+        try {
+            // 1. Create Org
+            const { data: org, error: orgError } = await supabase
+                .from('organizations')
+                .insert([{ name: newOrgName, slug: newOrgName.toLowerCase().replace(/\s+/g, '-') }])
+                .select()
+                .single();
+
+            if (orgError) throw orgError;
+
+            // 2. Link User (Upsert to ensure profile exists)
+            const { error: profileError } = await supabase
+                .from('profiles')
+                .upsert({
+                    id: user.id,
+                    email: user.email,
+                    organization_id: org.id,
+                    role: 'owner',
+                    is_super_admin: true
+                });
+
+            if (profileError) throw profileError;
+
+            // 3. Refresh Context
+            await refreshProfile();
+            setMsg({ type: 'success', text: 'Organização criada com sucesso!' });
+        } catch (error: any) {
+            console.error('Error creating org:', error);
+            alert(`Erro detalhado: ${JSON.stringify(error)} - ${error.message}`);
+            setMsg({ type: 'error', text: error.message || 'Erro ao criar organização.' });
+        } finally {
+            setCreating(false);
+        }
+    };
+
+    // Redirect if not logged in
+    if (!user && !loading) {
+        return <Navigate to="/login" replace />;
+    }
+
+    if (loading) {
+        return <div className="p-8 text-center text-slate-500">Carregando...</div>;
+    }
+
+    if (!user?.organizationId) {
+        return (
+            <div className="p-8 max-w-lg mx-auto text-center">
+                <div className="bg-white p-8 rounded-xl shadow-lg border border-slate-200">
+                    <div className="bg-indigo-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600">
+                        <Building size={32} />
+                    </div>
+                    <h2 className="text-xl font-bold text-slate-800 mb-2">Bem-vindo ao SGP</h2>
+                    <p className="text-slate-500 mb-6">Você ainda não pertence a nenhuma organização. Crie a sua para começar.</p>
+
+                    <form onSubmit={handleCreateOrg} className="space-y-4">
+                        <input
+                            type="text"
+                            placeholder="Nome da sua Organização (ex: Indústria X)"
+                            className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                            value={newOrgName}
+                            onChange={e => setNewOrgName(e.target.value)}
+                            required
+                        />
+                        <button
+                            type="submit"
+                            disabled={creating}
+                            className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-md hover:shadow-lg"
+                        >
+                            {creating ? 'Criando...' : 'Criar e Vincular'}
+                        </button>
+                    </form>
+
+                    {/* DEBUG SECTION */}
+                    <div className="mt-4 p-2 bg-gray-100 rounded text-xs text-left">
+                        <p className="font-bold text-red-600">DEBUG INFO:</p>
+                        <p>User: {user ? user.email : 'NULL'}</p>
+                        <p>Loading: {loading ? 'YES' : 'NO'}</p>
+                        <button onClick={() => alert(localStorage.getItem('sgp-auth-token'))} className="text-blue-500 underline mt-1">Show Token</button>
+                    </div>
+
+                    {msg.text && (
+                        <div className={`mt-4 text-sm font-medium ${msg.type === 'error' ? 'text-red-500' : 'text-green-600'}`}>
+                            {msg.text}
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    // Redirect if not logged in
+    if (!user && !loading) {
+        return <Navigate to="/login" replace />;
+    }
 
     return (
         <div className="p-6 max-w-4xl mx-auto space-y-8">
@@ -67,6 +178,7 @@ export const OrganizationSettings: React.FC = () => {
                     <div>
                         <h2 className="text-xl font-bold text-slate-800">Minha Organização</h2>
                         <p className="text-slate-500">Gerencie sua equipe e permissões</p>
+                        <button onClick={() => alert(JSON.stringify(Object.keys(localStorage)) + '\n' + localStorage.getItem('sgp-auth-token'))} className="text-xs bg-red-100 p-1">Debug Storage</button>
                     </div>
                 </div>
 

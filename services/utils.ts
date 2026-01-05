@@ -40,3 +40,19 @@ export const safeNumber = (val: any): number => {
     const num = Number(val);
     return isNaN(num) ? 0 : num;
 };
+
+// --- Formatters (PT-BR) ---
+
+export const formatNumber = (val: number, decimals: number = 0): string => {
+    return new Intl.NumberFormat('pt-BR', {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+    }).format(val || 0);
+};
+
+export const formatCurrency = (val: number): string => {
+    return new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL'
+    }).format(val || 0);
+};

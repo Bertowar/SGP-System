@@ -1,0 +1,5 @@
+Fetching details for OP-2026-0010...
+Recent OPs: [{"id":"OP-2026-0010","product_code":9655},{"id":"OP-2026-0009","product_code":9010},{"id":"OP-2026-0006","product_code":9655},{"id":"OP-2026-0005","product_code":9008}]
+OP Found: OP-2026-0010 | Product: 9655 (N/A)
+
+--- OP ACTUAL STEPS (0) ---

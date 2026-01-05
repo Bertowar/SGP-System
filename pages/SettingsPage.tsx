@@ -228,6 +228,12 @@ const SettingsPage: React.FC = () => {
                                 checked={settings.requireDowntimeNotes}
                                 onChange={val => setSettings({ ...settings, requireDowntimeNotes: val })}
                             />
+                            <ToggleSetting
+                                label="Incluir Borra no Retorno (Extrusão)"
+                                description="Se ativado, soma o valor da Borra na coluna Retorno. Se desativado, considera Borra como perda total."
+                                checked={settings.includeBorraInReturn || false}
+                                onChange={val => setSettings({ ...settings, includeBorraInReturn: val })}
+                            />
                         </div>
 
                         {/* Maintenance Mode Special Toggle */}

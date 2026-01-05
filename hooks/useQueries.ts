@@ -1,10 +1,13 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+    fetchMachineStatuses, registerProductionEntry, fetchDashboardStats
+} from '../services/inventoryService';
+import {
     fetchProducts, fetchMachines, fetchOperators, fetchDowntimeTypes, fetchScrapReasons,
-    fetchFieldDefinitions, fetchMachineStatuses, fetchSettings, fetchSectors, fetchWorkShifts,
-    registerProductionEntry, fetchDashboardStats, fetchProductionOrders, fetchEntriesByDate
-} from '../services/storage';
+    fetchFieldDefinitions, fetchSectors, fetchWorkShifts, fetchSettings
+} from '../services/masterDataService';
+import { fetchProductionOrders, fetchEntriesByDate } from '../services/productionService';
 import { ProductionEntry } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -152,6 +155,7 @@ export const useRegisterEntry = () => {
             queryClient.invalidateQueries({ queryKey: KEYS.MACHINE_STATUS });
             queryClient.invalidateQueries({ queryKey: [KEYS.DASHBOARD] }); // Invalidate all dashboards
             queryClient.invalidateQueries({ queryKey: KEYS.PRODUCTION_ORDERS }); // Refresh OPs progress
+            queryClient.invalidateQueries({ queryKey: [KEYS.ENTRIES] }); // Refresh Entry Lists
             // We could also invalidate specific entry lists if needed
         }
     });

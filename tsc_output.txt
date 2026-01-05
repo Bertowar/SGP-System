@@ -1,2 +1,4 @@
-pages/EngineeringRegistrations.tsx(628,10): error TS1472: 'catch' or 'finally' expected.
-pages/EngineeringRegistrations.tsx(1138,45): error TS1005: '}' expected.
+﻿pages/EntryForm.tsx(469,17): error TS2322: Type 'string | number' is not assignable to type 'string'.
+  Type 'number' is not assignable to type 'string'.
+pages/FastEntryPage.tsx(146,42): error TS2367: This comparison appears to be unintentional because the types 'string' and 'number' have no overlap.
+pages/FastEntryPage.tsx(161,9): error TS2322: Type 'number' is not assignable to type 'string'.

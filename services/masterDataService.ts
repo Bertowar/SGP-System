@@ -43,7 +43,8 @@ export const fetchSettings = async (): Promise<AppSettings> => {
       requireDowntimeNotes: data.require_downtime_notes ?? false,
       enableProductionOrders: data.enable_production_orders ?? true,
       extrusionScrapLimit: data.extrusion_scrap_limit ?? 5.0,
-      thermoformingScrapLimit: data.thermoforming_scrap_limit ?? 2.0
+      thermoformingScrapLimit: data.thermoforming_scrap_limit ?? 2.0,
+      includeBorraInReturn: data.include_borra_in_return ?? false // Default false
     };
   } catch (e) { return DEFAULT_SETTINGS; }
 };
@@ -69,6 +70,7 @@ export const saveSettings = async (settings: AppSettings): Promise<{ error?: any
     maintenance_mode: settings.maintenanceMode,
     extrusion_scrap_limit: settings.extrusionScrapLimit,
     thermoforming_scrap_limit: settings.thermoformingScrapLimit,
+    include_borra_in_return: settings.includeBorraInReturn,
     updated_at: new Date().toISOString(),
     organization_id: orgId
   };
@@ -184,7 +186,9 @@ export const fetchProducts = async (): Promise<Product[]> => {
         scrapMaterialId: d.scrap_recycling_material_id,
         compatibleMachines: relatedMachines,
         currentStock: d.current_stock || 0,
-        productTypeId: d.product_type_id // NEW
+        currentStock: d.current_stock || 0,
+        productTypeId: d.product_type_id, // NEW
+        extrusionMix: d.extrusion_mix // NEW
       };
     });
   } catch (e) { return PRODUCTS_DB; }
@@ -216,6 +220,7 @@ export const saveProduct = async (product: Product): Promise<void> => {
     scrap_recycling_material_id: product.scrapMaterialId,
     current_stock: safeNumber(product.currentStock),
     product_type_id: product.productTypeId, // NEW
+    extrusion_mix: product.extrusionMix, // NEW: Standard Recipe
     organization_id: orgId // Explicitly set org ID
   };
 
@@ -255,17 +260,17 @@ export const saveProduct = async (product: Product): Promise<void> => {
   }
 };
 
-export const updateProductTarget = async (code: number, itemsPerHour: number): Promise<void> => {
+export const updateProductTarget = async (code: string, itemsPerHour: number): Promise<void> => {
   const target = isNaN(itemsPerHour) || itemsPerHour < 0 ? 0 : Number(itemsPerHour);
   // RLS ensures we only update our org's product
   await supabase.from('products').update({ items_per_hour: target }).eq('code', code);
 };
 
-export const adjustProductStock = async (code: number, newQuantity: number): Promise<void> => {
+export const adjustProductStock = async (code: string, newQuantity: number): Promise<void> => {
   await supabase.from('products').update({ current_stock: Number(newQuantity) }).eq('code', code);
 };
 
-export const deleteProduct = async (code: number): Promise<void> => {
+export const deleteProduct = async (code: string): Promise<void> => {
   await supabase.from('products').delete().eq('code', code);
 };
 
@@ -333,7 +338,8 @@ export const fetchMachines = async (): Promise<Machine[]> => {
       id: d.id, // NEW
       code: d.code, name: d.name, group: d.group, acquisitionDate: d.acquisition_date,
       sector: d.sector, displayOrder: d.display_order || 0, productionCapacity: d.production_capacity || 0,
-      capacity_unit: d.capacity_unit || '', machine_value: d.machine_value || undefined // NEW
+      capacity_unit: d.capacity_unit || '', machine_value: d.machine_value || undefined, activity: d.activity || '', // NEW
+      organizationId: d.organization_id // NEW
     })).sort((a, b) => a.displayOrder - b.displayOrder || a.code.localeCompare(b.code));
   } catch (e) { return []; }
 };
@@ -353,6 +359,7 @@ export const saveMachine = async (machine: Machine): Promise<void> => {
     production_capacity: machine.productionCapacity || 0,
     capacity_unit: machine.capacity_unit || null, // NEW
     machine_value: machine.machine_value || null, // NEW
+    activity: machine.activity || null, // NEW
     organization_id: orgId
   };
 

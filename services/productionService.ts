@@ -1,491 +1,608 @@
 
 import { supabase } from './supabaseClient';
-import { ProductionEntry, AppAlert, ProductionOrder, MachineStatus, DashboardSummary } from '../types';
-import { SYSTEM_OPERATOR_ID } from '../constants';
-import { formatError } from './utils';
-import { processStockDeduction, processScrapGeneration, processStockTransaction } from './inventoryService';
-
-// Função auxiliar interna para garantir conversão numérica
-const ensureNumber = (val: any): number => {
-    if (val === null || val === undefined || val === '') return 0;
-    const n = Number(val);
-    return isNaN(n) ? 0 : n;
-};
-
-// --- Helpers ---
-
-const mapEntryFromDB = (data: any): ProductionEntry => ({
-    id: data.id,
-    date: data.date,
-    shift: data.shift,
-    operatorId: data.operator_id,
-    productCode: data.product_code,
-    machineId: data.machine_id,
-    startTime: data.start_time,
-    endTime: data.end_time,
-    qtyOK: ensureNumber(data.qty_ok),
-    qtyDefect: ensureNumber(data.qty_defect),
-    scrapReasonId: data.scrap_reason_id,
-    observations: data.observations,
-    createdAt: Number(data.created_at),
-    cycleRate: ensureNumber(data.cycle_rate || data.meta_data?.cycleRate),
-    measuredWeight: ensureNumber(data.measured_weight || data.meta_data?.measuredWeight),
-    calculatedScrap: ensureNumber(data.calculated_scrap),
-    downtimeMinutes: ensureNumber(data.downtime_minutes),
-    downtimeTypeId: data.downtime_type_id,
-    metaData: data.meta_data || {},
-    productionOrderId: data.production_order_id
-});
-
-const mapEntryToDB = (entry: ProductionEntry) => ({
-    id: entry.id,
-    date: entry.date,
-    shift: entry.shift || null,
-    operator_id: entry.operatorId,
-    product_code: entry.productCode || null,
-    machine_id: entry.machineId,
-    start_time: entry.startTime || null,
-    end_time: entry.endTime || null,
-    qty_ok: ensureNumber(entry.qtyOK),
-    qty_defect: ensureNumber(entry.qtyDefect),
-    scrap_reason_id: entry.scrapReasonId || null,
-    observations: entry.observations,
-    created_at: entry.createdAt,
-    cycle_rate: ensureNumber(entry.cycleRate),
-    measured_weight: ensureNumber(entry.measuredWeight),
-    calculated_scrap: ensureNumber(entry.calculatedScrap),
-    downtime_minutes: ensureNumber(entry.downtimeMinutes),
-    downtime_type_id: entry.downtimeTypeId || null,
-    meta_data: entry.metaData || {},
-    production_order_id: entry.productionOrderId || null
-});
-
-const mapAlertFromDB = (data: any): AppAlert => ({
-    id: data.id,
-    type: data.type,
-    title: data.title,
-    message: data.message,
-    severity: data.severity,
-    createdAt: Number(data.created_at),
-    isRead: data.is_read,
-    relatedEntryId: data.related_entry_id
-});
-
-const mapAlertToDB = (alert: AppAlert) => ({
-    id: alert.id,
-    type: alert.type,
-    title: alert.title,
-    message: alert.message,
-    severity: alert.severity,
-    created_at: alert.createdAt,
-    is_read: alert.isRead,
-    related_entry_id: alert.relatedEntryId
-});
-
-// --- Production Entries (CORE) ---
-
-
 import { getCurrentOrgId } from './auth';
+import { ProductionOrder, Product, MaterialReservation, WorkOrder, AppAlert } from '../types';
+import { fetchProductRoute } from './inventoryService';
+import { formatError } from './utils';
 
-export const saveEntry = async (entry: ProductionEntry): Promise<void> => {
-    if (entry.operatorId === SYSTEM_OPERATOR_ID) {
-        const { data } = await supabase.from('operators').select('id').eq('id', SYSTEM_OPERATOR_ID).single();
-        if (!data) {
-            await supabase.from('operators').insert([{ id: SYSTEM_OPERATOR_ID, name: 'SISTEMA (Inativo)' }]);
-        }
-    }
+// DTO for Creating Production Order
+interface CreateProductionOrderDTO {
+    productCode: string; // Or ID if we have it
+    quantity: number;
+    deliveryDate?: string;
+    priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+    salesOrderId?: string;
+    notes?: string;
+    machineId?: string; // Preferred Machine
+    parentOrderId?: string; // For Recursive MRP
+}
 
-    // Explicitly add org_id if possible
+export const createProductionOrder = async (dto: CreateProductionOrderDTO): Promise<ProductionOrder> => {
     const orgId = await getCurrentOrgId();
-    const payload = mapEntryToDB(entry);
-    if (orgId) {
-        (payload as any).organization_id = orgId;
+    if (!orgId) throw new Error("Organização não identificada.");
+
+    // 1. Fetch Product ID and Info
+    const { data: productData, error: productError } = await supabase
+        .from('products')
+        .select('*')
+        .eq('organization_id', orgId)
+        .eq('code', dto.productCode)
+        .limit(1)
+        .single();
+
+    if (productError || !productData) {
+        console.error("Erro busca produto:", productError, "Code:", dto.productCode);
+        throw new Error(`Produto ${dto.productCode} não encontrado ou duplicado.`);
+    }
+    const product = productData as Product;
+    // We need the internal UUID 'id' for relationships
+    if (!product.id) throw new Error("Produto sem ID interno (UUID).");
+
+    // 2. Fetch Active Route (Roteiro)
+    const route = await fetchProductRoute(product.id);
+    if (!route) {
+        // Warning: Allowing OP without Route? PRD implies Automation.
+        // For now, let's allow but we can't create Steps.
+        console.warn("Roteiro não encontrado para o produto.");
     }
 
-    const { error } = await supabase.from('production_entries').upsert([payload]);
-    if (error) throw error;
-};
+    // 3. Fetch Active BOM (Lista de Materiais)
+    // Assuming fetchBOM from inventoryService returns the BOM structure
+    // We need to query bom_headers and bom_items manually here to ensure we get the right version
+    // Or reuse existing service if it fits. Let's query directly for snapshotting.
 
-// ... handleQualitySideEffects remains same ...
-const handleQualitySideEffects = async (entry: ProductionEntry): Promise<void> => {
-    const isDraft = entry.metaData?.is_draft === true;
-    if (isDraft || entry.qtyDefect <= 0) return;
+    // Find latest active BOM
+    // Find latest active BOM
+    // Fix: access 'code' directly from DB result, not mapped 'product.codigo' which might be undefined
+    const productCodeStr = (productData as any).code;
 
-    const total = entry.qtyOK + entry.qtyDefect;
-    if (total === 0) return;
+    const { data: bomData } = await supabase
+        .from('product_bom') // Corrected table name
+        // .select('*') // We need to be careful with column selections if schema changed
+        .select('*')
+        .eq('organization_id', orgId)
+        .eq('product_code', productCodeStr);
 
-    const defectRate = entry.qtyDefect / total; // 0.0 to 1.0
+    // --- TRANSACTION START (Virtual) ---
+    // Supabase JS doesn't support complex Transactions easily on client side yet without RPC.
+    // We will do sequential inserts and rollback manually on error if needed, 
+    // or trust the "Happy Path" for this MVP step.
 
-    // Fetch Settings manually to avoid circular dependency with storage.ts
-    // Use ID 1 for global settings as per masterDataService convention
-    const { data: settingsData } = await supabase.from('app_settings').select('*').limit(1).single();
+    // A. Insert Production Order Header
+    // const newOpId = crypto.randomUUID(); // Removed: DB generates ID via Sequence now
+    const { data: opData, error: opError } = await supabase
+        .from('production_orders')
+        .insert({
+            // id: newOpId, // Let DB default (Sequence) handle it
+            organization_id: orgId,
+            product_code: dto.productCode, // Legacy field
+            // product_id: product.id, // Future field if we migrate fully
+            target_quantity: dto.quantity,
+            delivery_date: dto.deliveryDate,
+            priority: dto.priority || 'NORMAL',
+            status: 'PLANNED', // Default to Planned/Pending until confirmed/started
+            route_id: route?.id || null,
+            sales_order_id: dto.salesOrderId || null,
+            notes: dto.notes,
+            machine_id: dto.machineId || null,
+            parent_order_id: dto.parentOrderId || null
+        })
+        .select()
+        .single();
 
-    // Map DB columns to settings object (fallback to defaults if missing)
-    const settings = {
-        extrusionScrapLimit: settingsData?.extrusion_scrap_limit ?? 5.0,
-        thermoformingScrapLimit: settingsData?.thermoforming_scrap_limit ?? 2.0
-    };
+    if (opError || !opData) throw new Error("Erro ao criar Ordem de Produção: " + formatError(opError));
+    const newOP = opData as ProductionOrder;
 
-    // Fetch Machine Sector
-    const { data: machine } = await supabase.from('machines').select('sector').eq('code', entry.machineId).single();
-    const sector = machine?.sector;
+    // B. Explode BOM -> Material Reservations (RF5) & Recursive Child OPs (MRP Multi-level)
+    if (bomData && bomData.length > 0) {
+        const reservations = [];
 
-    // Determine Limit (Default 5%)
-    let limitPercent = 5;
-    let limitSource = 'Padrão';
+        for (const bomItem of bomData) {
+            const requiredQty = (bomItem.quantity_required || 0) * dto.quantity;
 
-    if (sector === 'Extrusão' && settings.extrusionScrapLimit) {
-        limitPercent = settings.extrusionScrapLimit;
-        limitSource = 'Extrusão';
-    } else if ((sector === 'Termoformagem' || sector === 'TFs') && settings.thermoformingScrapLimit) {
-        limitPercent = settings.thermoformingScrapLimit;
-        limitSource = 'TFs';
-    }
+            // Reservation is always created (Parent needs to consume valid stock)
+            reservations.push({
+                organization_id: orgId,
+                production_order_id: newOP.id,
+                material_id: bomItem.material_id, // Ensure this exists in BOM table
+                quantity: requiredQty,
+                status: 'PENDING'
+            });
 
-    const limitRate = limitPercent / 100;
+            // CHECK RECURSION: Is this material ALSO a Product?
+            // Heuristic: Check if there is a 'product' with the same CODE as the 'material'?
+            // Or better, check if the material is linked to a product? 
+            // In our system, Products and RawMaterials are separate tables, BUT 
+            // Intermediate products like "Bobina" might be registered as BOTH or just Product?
+            // Current Schema: `products` table has `type` (INTERMEDIATE/FINISHED).
+            // `raw_materials` table has `code`.
+            // If we have a Product with the same Code as this Material, we assume it's a manufactured item.
+            // To optimize, we should have fetched this info earlier, but for now we look it up.
+            // We need the material Code. `bomData` usually implies `select(*, material:raw_materials(*))`.
+            // Our query in Step 537 `select('*')` might strictly get BOM fields.
+            // Let's rely on valid BOM structure. We need Material Code to check Product existence.
 
-    if (defectRate > limitRate) {
-        const alertId = crypto.randomUUID();
-        await saveAlert({
-            id: alertId,
-            type: 'quality',
-            title: 'Refugo Alto Detectado',
-            message: `Taxa de ${(defectRate * 100).toFixed(1)}% na máquina ${entry.machineId} (Setor: ${sector}). Limite (${limitSource}): ${limitPercent}%`,
-            severity: 'high',
-            createdAt: Date.now(),
-            isRead: false,
-            relatedEntryId: entry.id
-        });
-    }
-};
+            // Optimization: Fetch references if possible.
+            // For MVP: Let's assume we can query `products` by code.
+            // We need to fetch the material code from `raw_materials` id first if not available.
+            // This loop awaits inside, which is slower but safer for logic.
 
-export const registerProductionEntry = async (entry: ProductionEntry, isEditMode: boolean): Promise<void> => {
-    const isDraft = entry.metaData?.is_draft === true;
-    const wasDraft = entry.metaData?.was_draft === true;
-    const shouldDeductStock = (!isEditMode && !isDraft) || (isEditMode && !isDraft && wasDraft);
+            const { data: matData } = await supabase.from('raw_materials').select('code').eq('id', bomItem.material_id).single();
+            if (matData && matData.code) {
+                const { data: childProduct } = await supabase
+                    .from('products')
+                    .select('*')
+                    .eq('organization_id', orgId)
+                    .eq('code', matData.code) // Linking Material Code = Product Code
+                    .limit(1)
+                    .single();
 
-    const dbEntry = mapEntryToDB(entry);
+                if (childProduct) {
+                    // It is a manufactured item! Create Child OP.
+                    console.log(`[MRP] Auto-creating Child OP for ${childProduct.name} (Parent: ${newOP.id})`);
 
-    // Inject OrgID explicitly
-    const orgId = await getCurrentOrgId();
-    if (orgId) {
-        (dbEntry as any).organization_id = orgId;
-    }
-
-    if (entry.operatorId === SYSTEM_OPERATOR_ID) {
-        const { data } = await supabase.from('operators').select('id').eq('id', SYSTEM_OPERATOR_ID).single();
-        if (!data) await supabase.from('operators').insert([{ id: SYSTEM_OPERATOR_ID, name: 'SISTEMA (Inativo)' }]);
-    }
-
-    let rpcSuccess = false;
-
-    try {
-        const { error } = await supabase.rpc('register_production_transaction', {
-            p_entry_data: dbEntry,
-            p_should_deduct_stock: shouldDeductStock
-        });
-
-        if (error) {
-            console.warn("RPC 'register_production_transaction' failed. Proceeding with legacy client-side fallback.", error);
-            rpcSuccess = false;
-        } else {
-            rpcSuccess = true;
-        }
-    } catch (e: any) {
-        console.warn("RPC Exception. Proceeding with legacy client-side fallback.", e);
-        rpcSuccess = false;
-    }
-
-    if (!rpcSuccess) {
-        await saveEntry(entry);
-
-        if (shouldDeductStock) {
-            try {
-                await processStockDeduction(entry);
-            } catch (stockErr) {
-                console.error("Stock deduction failed in fallback mode:", stockErr);
-            }
-        }
-    }
-
-    if (!isDraft && entry.productCode && (entry.qtyOK > 0 || entry.qtyDefect > 0)) {
-        await processScrapGeneration(entry);
-
-        // SYNC: Se o produto produzido também estiver cadastrado como Matéria Prima (ex: Intermediário),
-        // dar entrada no estoque de Materiais para que possa ser consumido na próxima etapa (BOM).
-        if (entry.qtyOK > 0 && entry.productCode) {
-            try {
-                // Check if material exists with this code (using supabase directly to avoid circular dependency if fetchMaterials was used)
-                const { data: matData } = await supabase.from('raw_materials').select('id, name').eq('code', entry.productCode.toString()).single();
-
-                if (matData) {
-                    await processStockTransaction({
-                        materialId: matData.id,
-                        type: 'IN',
-                        quantity: entry.qtyOK,
-                        notes: `Produção Auto: ${entry.qtyOK}un de ${entry.productCode}`,
-                        relatedEntryId: entry.id
+                    // Recursive Call
+                    await createProductionOrder({
+                        productCode: childProduct.code,
+                        quantity: requiredQty, // Produce exactly what's needed
+                        deliveryDate: dto.deliveryDate, // Same delivery target
+                        priority: dto.priority,
+                        notes: `Auto-generated for Parent OP #${newOP.id.substring(0, 8)}`,
+                        parentOrderId: newOP.id, // Link to Parent
+                        salesOrderId: dto.salesOrderId
                     });
                 }
-            } catch (syncErr) {
-                console.warn("Falha ao sincronizar estoque de produto intermediário:", syncErr);
             }
+        }
+
+        if (reservations.length > 0) {
+            const { error: resError } = await supabase
+                .from('material_reservations')
+                .insert(reservations);
+
+            if (resError) console.error("Erro ao criar reservas:", resError);
         }
     }
 
-    await handleQualitySideEffects(entry);
-};
+    // C. Explode Route -> Work Orders (RF3/RF4)
+    if (route && route.steps && route.steps.length > 0) {
+        const workOrders = route.steps.map((step, index) => ({
+            organization_id: orgId,
+            production_order_id: newOP.id,
+            step_id: step.id,
+            // machine_id: null, // To be assigned later or auto-assigned from group
+            status: index === 0 ? 'READY' : 'PENDING', // First step is Ready
+            qty_planned: dto.quantity, // Full lot for now
+            qty_produced: 0,
+            qty_rejected: 0
+        }));
 
+        const { error: woError } = await supabase
+            .from('production_order_steps')
+            .insert(workOrders);
 
-export const fetchEntries = async (): Promise<ProductionEntry[]> => {
-    try {
-        const { data, error } = await supabase.from('production_entries').select('*').order('created_at', { ascending: false });
-        if (error) return [];
-        return (data || []).map(mapEntryFromDB);
-    } catch (e) { return []; }
-};
-
-export const fetchEntriesByDate = async (date: string): Promise<ProductionEntry[]> => {
-    try {
-        const { data, error } = await supabase.from('production_entries').select('*').eq('date', date).order('created_at', { ascending: false });
-        if (error) return [];
-        return (data || []).map(mapEntryFromDB);
-    } catch (e) { return []; }
-};
-
-export const deleteEntry = async (id: string): Promise<void> => {
-    const { error, count } = await supabase.from('production_entries').delete({ count: 'exact' }).eq('id', id);
-    if (error) throw error;
-    if (count === 0) throw new Error("Falha na exclusão: Permissão Negada (RLS) ou Registro não encontrado.");
-};
-
-export const getLastMachineEntry = async (machineId: string, date: string): Promise<ProductionEntry | null> => {
-    try {
-        const { data, error } = await supabase
-            .from('production_entries')
-            .select('*')
-            .eq('machine_id', machineId)
-            .eq('date', date)
-            .order('end_time', { ascending: false })
-            .limit(1)
-            .single();
-
-        if (error || !data) return null;
-        return mapEntryFromDB(data);
-    } catch { return null; }
-};
-
-export const checkTimeOverlap = async (machineId: string, date: string, start: string, end: string, excludeId?: string): Promise<boolean> => {
-    try {
-        let query = supabase
-            .from('production_entries')
-            .select('id')
-            .eq('machine_id', machineId)
-            .eq('date', date)
-            .lt('start_time', end)
-            .gt('end_time', start);
-
-        if (excludeId) {
-            query = query.neq('id', excludeId);
-        }
-
-        const { data, error } = await query;
-        if (error) throw error;
-        return data && data.length > 0;
-    } catch (e) {
-        return false;
+        if (woError) console.error("Erro ao gerar Ordens de Trabalho:", woError);
     }
-};
 
-export const fetchMachineStatuses = async (): Promise<Record<string, MachineStatus>> => {
-    try {
-        const { data, error } = await supabase
-            .from('production_entries')
-            .select('machine_id, downtime_minutes, created_at, product_code, meta_data')
-            .order('created_at', { ascending: false })
-            .limit(1000);
-
-        if (error || !data) return {};
-
-        const statusMap: Record<string, MachineStatus> = {};
-        const today = new Date().setHours(0, 0, 0, 0);
-
-        data.forEach((entry: any) => {
-            if (!statusMap[entry.machine_id]) {
-                const entryDate = new Date(Number(entry.created_at));
-                const isLongStop = entry.meta_data?.long_stop === true;
-
-                if (isLongStop) {
-                    statusMap[entry.machine_id] = { status: 'idle' };
-                }
-                else if (entryDate.getTime() < (today - 172800000)) {
-                    statusMap[entry.machine_id] = { status: 'idle' };
-                }
-                else if (entry.downtime_minutes > 0) {
-                    statusMap[entry.machine_id] = { status: 'stopped' };
-                }
-                else {
-                    statusMap[entry.machine_id] = {
-                        status: 'running',
-                        productCode: entry.product_code
-                    };
-                }
-            }
-        });
-        return statusMap;
-    } catch (e) { return {}; }
-};
-
-export const saveAlert = async (alert: AppAlert): Promise<void> => {
-    await supabase.from('alerts').insert([mapAlertToDB(alert)]);
-};
-
-export const fetchAlerts = async (): Promise<AppAlert[]> => {
-    try {
-        const { data } = await supabase.from('alerts').select('*').order('created_at', { ascending: false });
-        return (data || []).map(mapAlertFromDB);
-    } catch (e) { return []; }
-};
-
-export const markAlertAsRead = async (id: string): Promise<void> => {
-    await supabase.from('alerts').update({ is_read: true }).eq('id', id);
+    return newOP;
 };
 
 export const getUnreadAlertCount = async (): Promise<number> => {
     try {
-        const { count } = await supabase.from('alerts').select('*', { count: 'exact', head: true }).eq('is_read', false);
+        const orgId = await getCurrentOrgId();
+        const { count, error } = await supabase
+            .from('app_alerts')
+            .select('*', { count: 'exact', head: true })
+            .eq('organization_id', orgId)
+            .eq('is_read', false);
         return count || 0;
     } catch (e) { return 0; }
 };
 
-const LOCAL_OPS_KEY = 'pplast_local_ops';
-export const fetchProductionOrders = async (): Promise<ProductionOrder[]> => {
+export const fetchAlerts = async (): Promise<AppAlert[]> => {
     try {
-        const { data: orders, error } = await supabase.from('production_orders').select('*, product:products(*)').order('delivery_date', { ascending: true });
-        if (error && error.code === '42P01') {
-            const localData = localStorage.getItem(LOCAL_OPS_KEY);
-            const parsedOrders = localData ? JSON.parse(localData) : [];
-            const { data: allProds } = await supabase.from('products').select('*');
-            return parsedOrders.map((o: any) => ({ ...o, product: allProds ? allProds.find((p: any) => p.code === o.productCode) : undefined }));
-        }
-        if (error) throw error;
-        const orderIds = orders.map((o: any) => o.id);
-        let summaries: any[] = [];
-        try { const { data: sumData } = await supabase.from('production_entries').select('production_order_id, qty_ok').in('production_order_id', orderIds); summaries = sumData || []; } catch (e) { }
+        const orgId = await getCurrentOrgId();
+        const { data, error } = await supabase
+            .from('app_alerts')
+            .select('*')
+            .eq('organization_id', orgId)
+            .order('created_at', { ascending: false })
+            .limit(50);
 
-        return orders.map((d: any) => {
-            const produced = summaries.filter((s: any) => s.production_order_id === d.id).reduce((acc: number, curr: any) => acc + curr.qty_ok, 0);
-            return {
-                id: d.id,
-                productCode: d.product_code,
-                machineId: d.machine_id,
-                targetQuantity: d.target_quantity,
-                producedQuantity: produced,
-                customerName: d.customer_name,
-                deliveryDate: d.delivery_date,
-                status: d.status,
-                priority: d.priority,
-                notes: d.notes,
-                createdAt: d.created_at,
-                product: d.product ? {
-                    codigo: d.product.code,
-                    produto: d.product.name,
-                    descricao: d.product.description,
-                    pesoLiquido: d.product.net_weight || 0,
-                    custoUnit: d.product.unit_cost || 0
-                } : undefined,
-                metaData: d.meta_data || {}
-            }
-        });
+        if (error) throw error;
+        return (data || []).map((d: any) => ({
+            id: d.id,
+            type: d.type,
+            title: d.title,
+            message: d.message,
+            severity: d.severity,
+            createdAt: new Date(d.created_at).getTime(),
+            isRead: d.is_read,
+            relatedEntryId: d.related_entry_id
+        }));
     } catch (e) { return []; }
 };
 
-export const saveProductionOrder = async (order: Partial<ProductionOrder>): Promise<void> => {
+export const markAlertAsRead = async (id: string): Promise<void> => {
+    await supabase.from('app_alerts').update({ is_read: true }).eq('id', id);
+};
+
+// Function to fetch full OP details (with steps and reservations)
+export const fetchProductionOrderDetails = async (opId: string) => {
     const orgId = await getCurrentOrgId();
-    const dbOrder = {
-        id: order.id,
-        product_code: order.productCode,
-        machine_id: order.machineId,
-        target_quantity: order.targetQuantity,
-        customer_name: order.customerName,
-        delivery_date: order.deliveryDate,
-        status: order.status,
-        priority: order.priority,
-        notes: order.notes,
-        meta_data: order.metaData || null,
-        organization_id: orgId
-    };
+    if (!orgId) return null;
 
-    let { error } = await supabase.from('production_orders').upsert([dbOrder]);
+    const { data, error } = await supabase
+        .from('production_orders')
+        .select(`
+            *,
+            product:products(name, description, code),
+            reservations:material_reservations(
+                *,
+                material:raw_materials(name, unit, code)
+            ),
+            steps:production_order_steps(
+                *,
+                step:route_steps(*)
+            )
+        `)
+        .eq('id', opId)
+        .eq('organization_id', orgId)
+        .single();
 
-    if (error && (error.code === 'PGRST204' || error.message.includes('meta_data'))) {
-        console.warn("Aviso: Coluna 'meta_data' não encontrada na tabela 'production_orders'. Salvando versão legada.");
-        delete dbOrder.meta_data;
-        const retry = await supabase.from('production_orders').upsert([dbOrder]);
-        if (retry.error) throw retry.error;
-    } else if (error) {
-        if (error.code === '42P01') {
-            const localData = localStorage.getItem(LOCAL_OPS_KEY);
-            const orders = localData ? JSON.parse(localData) : [];
-            const existingIdx = orders.findIndex((o: any) => o.id === order.id);
-            const newOrderObj = { ...order, createdAt: new Date().toISOString() };
-            if (existingIdx >= 0) { orders[existingIdx] = { ...orders[existingIdx], ...newOrderObj }; } else { orders.push(newOrderObj); }
-            localStorage.setItem(LOCAL_OPS_KEY, JSON.stringify(orders));
-            return;
+    if (error || !data) return null;
+
+    // Resolve machine_id mechanism:
+    // If DB stores Code (e.g. "EXT-01") but UI expects UUID, we must fetch the UUID.
+    let resolvedMachineId = data.machine_id;
+    if (data.machine_id && data.machine_id.length < 32) { // heuristic: UUID is 36 chars
+        const { data: mData } = await supabase
+            .from('machines')
+            .select('id')
+            .eq('organization_id', orgId)
+            .eq('code', data.machine_id) // Match the stored Code
+            .single();
+        if (mData) {
+            resolvedMachineId = mData.id;
         }
-        throw error;
+    }
+
+    // Map snake_case to CamelCase
+    return {
+        id: data.id,
+        organizationId: data.organization_id,
+        machineId: resolvedMachineId, // Fix: Ensure machineId is mapped so UI knows current state
+        productCode: data.product_code,
+        targetQuantity: data.target_quantity,
+        producedQuantity: data.produced_quantity || 0,
+        deliveryDate: data.delivery_date,
+        priority: data.priority,
+        status: data.status,
+
+        note: data.notes,
+        parentOrderId: data.parent_order_id, // Map Parent Link
+        product: data.product ? {
+            produto: data.product.name,
+            codigo: data.product.code,
+            descricao: data.product.description
+        } : undefined,
+
+        // Fix: Add product join and map everything.
+        reservations: data.reservations?.map((r: any) => ({
+            id: r.id,
+            materialId: r.material_id,
+            quantity: r.quantity,
+            status: r.status,
+            material: r.material // { name, unit, code }
+        })),
+        steps: data.steps?.map((s: any) => ({
+            id: s.id,
+            stepId: s.step_id,
+            status: s.status,
+            qtyPlanned: s.qty_planned,
+            qtyProduced: s.qty_produced,
+            qtyRejected: s.qty_rejected,
+            startTime: s.start_time,
+            endTime: s.end_time,
+            step: s.step ? {
+                description: s.step.description,
+                setupTime: s.step.setup_time,
+                cycleTime: s.step.cycle_time,
+                stepOrder: s.step.step_order
+            } : {},
+            machine: s.machine, // null for now
+            operator: s.operator // null for now
+        }))
+    };
+};
+
+// --- LEGACY / SIMPLE CRUD SUPPORT (For ProductionPlanPage compatibility) ---
+
+export const fetchProductionOrders = async (): Promise<ProductionOrder[]> => {
+    const orgId = await getCurrentOrgId();
+    if (!orgId) return [];
+    const { data, error } = await supabase
+        .from('production_orders')
+        .select('*, product:products(*)')
+        .eq('organization_id', orgId)
+        .order('created_at', { ascending: false });
+    if (error) return [];
+
+    // Map data to ensure types match if needed, or cast
+    return (data || []).map((d: any) => ({
+        ...d,
+        productCode: d.product_code, // DB uses product_code
+        targetQuantity: d.target_quantity,
+        producedQuantity: d.produced_quantity,
+        deliveryDate: d.delivery_date,
+        machineId: d.machine_id,
+        salesOrderId: d.sales_order_id,
+        routeId: d.route_id,
+        bomId: d.bom_id,
+        metaData: d.meta_data,
+        createdAt: d.created_at,
+        parentOrderId: d.parent_order_id // Map DB snake_case to TS camelCase
+        // product is joined
+    } as ProductionOrder));
+};
+
+export const saveProductionOrder = async (order: Partial<ProductionOrder>): Promise<string> => {
+    const orgId = await getCurrentOrgId();
+    if (!orgId) throw new Error("Organização não identificada.");
+
+    // Build payload dynamically
+    const dbOrder: any = {};
+
+    if (order.productCode !== undefined) dbOrder.product_code = order.productCode;
+    if (order.targetQuantity !== undefined) dbOrder.target_quantity = order.targetQuantity;
+    if (order.deliveryDate !== undefined) dbOrder.delivery_date = order.deliveryDate;
+    if (order.priority !== undefined) dbOrder.priority = order.priority;
+    if (order.status !== undefined) dbOrder.status = order.status;
+    if (order.notes !== undefined) dbOrder.notes = order.notes;
+    // machineId can be null (to unassign), but if undefined, don't update
+    if (order.machineId !== undefined) dbOrder.machine_id = order.machineId;
+    if (order.metaData !== undefined) dbOrder.meta_data = order.metaData;
+
+    if (order.id) {
+        // UPDATE STRATEGY - REVISED (Code First):
+        // Evidence shows DB stores Machine CODE ("EXT-01") in machine_id column.
+        // But UI sends UUID.
+        // 1. Resolve UUID -> Code.
+        // 2. Try saving Code (Trimmed).
+        // 3. If fails, Try saving UUID (Fallback).
+
+        // Fetch Machine Details unconditionally if machineId is present
+        let machineData: any = null;
+        if (dbOrder.machine_id) {
+            // Check if it looks like UUID? Or just fetch by ID.
+            const { data } = await supabase.from('machines').select('code, organization_id').eq('id', dbOrder.machine_id).single();
+            machineData = data;
+        }
+
+        // Prepare Base Payload
+        const baseUpdate = { ...dbOrder };
+        delete baseUpdate.organization_id; // Default: Don't touch Org
+
+        // STRATEGY 1: CODE (Most likely correct based on data inspection)
+        if (machineData && machineData.code) {
+            const codePayload = {
+                ...baseUpdate,
+                machine_id: machineData.code.trim(),
+                organization_id: machineData.organization_id // Force sync Org just in case
+            };
+            try {
+                const { error } = await supabase.from('production_orders').update(codePayload).eq('id', order.id);
+                if (!error) return order.id;
+                console.warn("Strategy 1 (Code) failed:", error.message);
+            } catch (e) { console.warn("Strategy 1 Exception:", e); }
+        }
+
+        // STRATEGY 2: UUID (Fallback if DB expects UUID)
+        try {
+            // Restore UUID if we tried Code
+            const uuidPayload = { ...baseUpdate };
+            // If we have machineData, sync org too?
+            if (machineData) uuidPayload.organization_id = machineData.organization_id;
+
+            const { error } = await supabase.from('production_orders').update(uuidPayload).eq('id', order.id);
+            if (!error) return order.id;
+
+            console.warn("Strategy 2 (UUID+Org) failed:", error.message);
+            // If that failed, maybe UUID without Org?
+            delete uuidPayload.organization_id;
+            const { error: err3 } = await supabase.from('production_orders').update(uuidPayload).eq('id', order.id);
+            if (!err3) return order.id;
+            throw err3; // Fail finally
+        } catch (errFinal: any) {
+            console.error("All strategies failed. Last error:", errFinal.message);
+            throw errFinal;
+        }
+    } else {
+        // INSERT: Must include organization_id
+        dbOrder.organization_id = orgId;
+
+        // Ensure required fields are present (though DB constraints will catch this too)
+        const { data, error } = await supabase.from('production_orders').insert(dbOrder).select('id').single();
+        if (error) throw error;
+        return data.id;
     }
 };
 
 export const deleteProductionOrder = async (id: string): Promise<void> => {
-    let linkedCount = 0;
-    try {
-        const { count, error } = await supabase.from('production_entries').select('id', { count: 'exact', head: true }).eq('production_order_id', id);
-        if (!error && count) {
-            linkedCount = count;
-        }
-    } catch (e) {
-        console.warn("Skipping pre-check for linked entries due to query error", e);
+    // 1. Manually Cascade Delete Linked Entries (production_entries)
+    const { error: entriesError } = await supabase
+        .from('production_entries')
+        .delete()
+        .eq('production_order_id', id);
+
+    if (entriesError) {
+        console.error("Error cleaning up linked entries:", entriesError);
+        throw entriesError;
     }
 
-    if (linkedCount > 0) {
-        throw new Error("Não é possível excluir OP com apontamentos vinculados.");
+    // 2. Cascade Delete Linked Reservations (material_reservations)
+    // Sometimes FKs here also block delete
+    const { error: resError } = await supabase
+        .from('material_reservations')
+        .delete()
+        .eq('production_order_id', id);
+
+    if (resError) {
+        console.error("Error cleaning up reservations:", resError);
+        // Continue? If reservations block, we should probably throw.
+        // throw resError; 
     }
 
+    // 3. Delete the OP itself
     const { error } = await supabase.from('production_orders').delete().eq('id', id);
-
-    if (error) {
-        if (error.code === '42P01') {
-            const localData = localStorage.getItem(LOCAL_OPS_KEY);
-            if (localData) {
-                const orders = JSON.parse(localData);
-                const filtered = orders.filter((o: any) => o.id !== id);
-                localStorage.setItem(LOCAL_OPS_KEY, JSON.stringify(filtered));
-            }
-            return;
-        }
-        if (error.code === '23503') {
-            throw new Error("Não é possível excluir OP com apontamentos vinculados (Restrição de Integridade).");
-        }
-        throw error;
-    }
+    if (error) throw error;
 };
 
-export const fetchDashboardStats = async (startDate: string, endDate: string): Promise<DashboardSummary | null> => {
-    try {
-        const { data, error } = await supabase.rpc('get_dashboard_metrics', {
-            p_start_date: startDate,
-            p_end_date: endDate
-        });
+// --- PRODUCTION ENTRY MANAGEMENT (Apontamentos) ---
 
-        if (error) {
-            console.error("Dashboard RPC Error FULL:", JSON.stringify(error, null, 2));
-            throw error;
-        }
+export const fetchEntriesByDate = async (date: string): Promise<any[]> => {
+    const orgId = await getCurrentOrgId();
+    if (!orgId) return [];
 
-        return data as DashboardSummary;
-    } catch (e) {
-        console.error("Dashboard fetch error:", e);
-        throw e;
+    const { data, error } = await supabase
+        .from('production_entries')
+        .select('*')
+        .eq('organization_id', orgId)
+        .eq('date', date)
+        .order('start_time', { ascending: false });
+
+    if (error) {
+        console.error("Error fetching entries:", error);
+        return [];
     }
+
+    // Map Snake_Case DB to CamelCase TS
+    return (data || []).map((d: any) => ({
+        id: d.id,
+        date: d.date,
+        startTime: d.start_time,
+        endTime: d.end_time,
+        machineId: d.machine_id,
+        operatorId: d.operator_id,
+        productCode: d.product_code,
+        qtyOK: d.qty_ok,
+        qtyDefect: d.qty_defect,
+        downtimeMinutes: d.downtime_minutes || 0,
+        downtimeTypeId: d.downtime_type_id,
+        observations: d.observations,
+        shift: d.shift,
+        scrapReasonId: d.scrap_reason_id,
+        productionOrderId: d.production_order_id,
+        cycleRate: d.cycle_rate, // If column exists
+        measuredWeight: d.measured_weight, // If column exists
+        metaData: d.meta_data,
+        createdAt: d.created_at
+    }));
+};
+
+export const fetchEntriesByProductionOrderId = async (opId: string): Promise<any[]> => {
+    const orgId = await getCurrentOrgId();
+    if (!orgId) return [];
+
+    // 1. Fetch entries (without failing joins for missing FKs)
+    const { data: entries, error } = await supabase
+        .from('production_entries')
+        .select('*, scrap_reason:scrap_reasons(description)') // scrap_reason has FK, so this is safe
+        .eq('organization_id', orgId)
+        .eq('production_order_id', opId)
+        .order('start_time', { ascending: false });
+
+    if (error) {
+        console.error("Error fetching entries by OP:", error);
+        return [{ id: 'error', error: error.message }];
+    }
+
+    if (!entries || entries.length === 0) return [];
+
+    // 2. Manual Join for Operators and Downtime Types (Missing FKs in DB)
+    const operatorIds = [...new Set(entries.map(e => e.operator_id).filter(Boolean))];
+    const downtimeTypeIds = [...new Set(entries.map(e => e.downtime_type_id).filter(Boolean))];
+
+    const [operatorsRes, downtimeTypesRes] = await Promise.all([
+        operatorIds.length > 0 ? supabase.from('operators').select('id, name').in('id', operatorIds) : { data: [] },
+        downtimeTypeIds.length > 0 ? supabase.from('downtime_types').select('id, description').in('id', downtimeTypeIds) : { data: [] }
+    ]);
+
+    const operatorMap = (operatorsRes.data || []).reduce((acc: any, op: any) => ({ ...acc, [op.id]: op }), {});
+    const downtimeMap = (downtimeTypesRes.data || []).reduce((acc: any, dt: any) => ({ ...acc, [dt.id]: dt }), {});
+
+    // 3. Merge Data
+    return entries.map((d: any) => ({
+        id: d.id,
+        date: d.date,
+        startTime: d.start_time,
+        endTime: d.end_time,
+        machineId: d.machine_id,
+        operatorId: d.operator_id,
+        operatorName: operatorMap[d.operator_id]?.name || null, // Mapped locally
+        productCode: d.product_code,
+        qtyOK: d.qty_ok, // Production
+        qtyNOK: d.qty_defect, // Scrap (Defect)
+        downtimeMinutes: d.downtime_minutes || 0,
+        downtimeTypeId: d.downtime_type_id,
+        downtimeTypeName: downtimeMap[d.downtime_type_id]?.description || null, // Mapped locally
+        observations: d.observations,
+        shift: d.shift,
+        scrapReasonId: d.scrap_reason_id,
+        scrapReasonName: d.scrap_reason?.description || null, // Native join
+        productionOrderId: d.production_order_id,
+        createdAt: d.created_at,
+        measuredWeight: d.measured_weight,
+        metaData: d.meta_data,
+        cycleRate: d.cycle_rate
+    }));
+};
+
+export const deleteEntry = async (id: string): Promise<void> => {
+    const { error } = await supabase
+        .from('production_entries')
+        .delete()
+        .eq('id', id);
+    if (error) throw error;
+};
+export const fetchActiveProductionOrders = async (): Promise<ProductionOrder[]> => {
+    const orgId = await getCurrentOrgId();
+    if (!orgId) return [];
+
+    const { data, error } = await supabase
+        .from('production_orders')
+        .select(`
+            id, product_code, status, delivery_date, target_quantity, machine_id, produced_quantity, priority, created_at,
+            product:products(id, codigo, produto, type, description, unit),
+            work_orders(id, machine_id, cycle_time, qty_planned, qty_produced, status, step_order)
+        `)
+        .eq('organization_id', orgId)
+        .in('status', ['PLANNED', 'CONFIRMED', 'IN_PROGRESS']); // Only active ones
+
+    if (error) {
+        console.error("Error fetching OPs ativas:", error);
+        return [];
+    }
+
+    // Map snake to camel
+    return (data || []).map((o: any) => ({
+        id: o.id,
+        productCode: o.product_code,
+        status: o.status,
+        deliveryDate: o.delivery_date,
+        targetQuantity: o.target_quantity,
+        producedQuantity: o.produced_quantity || 0,
+        machineId: o.machine_id,
+        priority: o.priority,
+        createdAt: o.created_at,
+        product: o.product,
+        workOrders: o.work_orders?.map((w: any) => ({
+            id: w.id,
+            machineId: w.machine_id,
+            cycleTime: w.cycle_time,
+            qtyPlanned: w.qty_planned,
+            qtyProduced: w.qty_produced,
+            status: w.status
+        })) || []
+    }));
 };

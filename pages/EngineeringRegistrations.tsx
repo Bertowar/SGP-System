@@ -8,19 +8,22 @@ import {
 import { saveMachine } from '../services/masterDataService';
 import { fetchBOM } from '../services/inventoryService'; // NEW: Import BOM service
 import { Product, Operator, Machine, DowntimeType, MachineSector, RawMaterial, ScrapReason, ProductCategory, Sector, WorkShift, ProductTypeDefinition } from '../types';
-import { Trash2, Edit, Save, Package, Users, Cpu, Timer, AlertCircle, X, Plus, Loader2, AlertTriangle, Layers, Grid, Clock, CheckSquare, RefreshCw, Info, CheckCircle, Boxes, Lightbulb } from 'lucide-react'; // Added Boxes and Lightbulb
+import { Trash2, Edit, Save, Package, Users, Cpu, Timer, AlertCircle, X, Plus, Loader2, AlertTriangle, Layers, Grid, Clock, CheckSquare, RefreshCw, Info, CheckCircle, Boxes, Lightbulb, Workflow, Box } from 'lucide-react'; // Added Workflow and Box
 import { Input } from '../components/Input';
+import RouteEditorModal from '../components/RouteEditorModal';
+import { StructureExplorer } from '../components/StructureExplorer';
 
 // --- Interfaces ---
 interface SimpleTableProps<T> {
     data: T[];
-    columns: { header: string; render: (item: T) => React.ReactNode }[];
+    columns: { header: string; render: (item: T) => React.ReactNode; className?: string }[];
     onDelete: (item: T) => void;
     FormComponent: React.FC<{ onSave: () => void; initialData?: T }>;
     onSaveSuccess: () => void;
+    customActions?: (item: T) => React.ReactNode;
 }
 
-const SimpleTable = <T,>({ data, columns, onDelete, FormComponent, onSaveSuccess }: SimpleTableProps<T>) => {
+const SimpleTable = <T,>({ data, columns, onDelete, FormComponent, onSaveSuccess, customActions }: SimpleTableProps<T>) => {
     const [showForm, setShowForm] = useState(false);
     const [editingItem, setEditingItem] = useState<T | undefined>(undefined);
 
@@ -51,8 +54,8 @@ const SimpleTable = <T,>({ data, columns, onDelete, FormComponent, onSaveSuccess
                 <table className="w-full text-sm text-left bg-white">
                     <thead className="bg-slate-50 border-b border-slate-200">
                         <tr>
-                            {columns.map((c, i) => <th key={i} className="px-4 py-3 font-semibold text-slate-700 whitespace-nowrap">{c.header}</th>)}
-                            <th className="px-4 py-3 text-right text-slate-700 font-semibold">Ações</th>
+                            {columns.map((c, i) => <th key={i} className={`px-3 py-3 font-semibold text-slate-700 whitespace-nowrap ${c.className || ''}`}>{c.header}</th>)}
+                            <th className="px-3 py-3 text-right text-slate-700 font-semibold w-[100px]">Ações</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -61,9 +64,10 @@ const SimpleTable = <T,>({ data, columns, onDelete, FormComponent, onSaveSuccess
                         ) : (
                             data.map((item, idx) => (
                                 <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                    {columns.map((c, i) => <td key={i} className="px-4 py-3 whitespace-nowrap">{c.render(item)}</td>)}
-                                    <td className="px-4 py-3 text-right">
+                                    {columns.map((c, i) => <td key={i} className={`px-3 py-3 whitespace-nowrap ${c.className || ''}`}>{c.render(item)}</td>)}
+                                    <td className="px-3 py-3 text-right">
                                         <div className="flex justify-end gap-2">
+                                            {customActions && customActions(item)}
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); handleEdit(item); }}
                                                 className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-md transition-colors"
@@ -178,6 +182,17 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
     const [selectedTypeId, setSelectedTypeId] = useState(initialData?.productTypeId || '');
     const [type, setType] = useState<'FINISHED' | 'INTERMEDIATE' | 'COMPONENT' | ''>(initialData?.type || '');
 
+    // NEW: Mix Definition State
+    const [mixItems, setMixItems] = useState<{ type: string, subType: string, qty: string }[]>(initialData?.extrusionMix || [
+        { type: 'FLAKE', subType: 'CRISTAL', qty: '' },
+        { type: 'FLAKE', subType: 'BRANCO', qty: '' },
+        { type: '', subType: '', qty: '' },
+        { type: '', subType: '', qty: '' }
+    ]);
+
+    // NEW: Cycle Time (helper for itemsPerHour)
+    const [cycleTime, setCycleTime] = useState('');
+
     useEffect(() => {
         fetchProductTypes().then(setProductTypes);
     }, []);
@@ -206,6 +221,17 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
     const [machines, setMachines] = useState<Machine[]>([]);
     const [materials, setMaterials] = useState<RawMaterial[]>([]);
     const [categories, setCategories] = useState<ProductCategory[]>([]);
+    const [itemsPerHour, setItemsPerHour] = useState(initialData?.itemsPerHour?.toString() || '0'); // Local state for items per hour
+
+    useEffect(() => {
+        if (itemsPerHour && Number(itemsPerHour) > 0) {
+            const cycle = 60 / Number(itemsPerHour);
+            setCycleTime(cycle.toFixed(4));
+        } else {
+            setCycleTime('');
+        }
+    }, []); // Only on mount/reset, otherwise mapped from initialData
+
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isCalculating, setIsCalculating] = useState(false); // NEW
 
@@ -259,6 +285,25 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
 
             // Auto-Calculate Cost from BOM if editing
             calculateCost(initialData.codigo);
+
+            // Set Items Per Hour and Cycle Time
+            setItemsPerHour(initialData.itemsPerHour?.toString() || '0');
+            if (initialData.itemsPerHour && initialData.itemsPerHour > 0) {
+                setCycleTime((60 / initialData.itemsPerHour).toFixed(4));
+            } else {
+                setCycleTime('');
+            }
+            // Set Mix
+            if (initialData.extrusionMix) {
+                setMixItems(initialData.extrusionMix);
+            } else {
+                setMixItems([
+                    { type: 'FLAKE', subType: 'CRISTAL', qty: '' },
+                    { type: 'FLAKE', subType: 'BRANCO', qty: '' },
+                    { type: '', subType: '', qty: '' },
+                    { type: '', subType: '', qty: '' }
+                ]);
+            }
         } else {
             // Force explicit reset on new item (clean state)
             setCode('');
@@ -309,7 +354,9 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                 unit: unit,
                 scrapMaterialId: scrapId || undefined, // Send undefined if empty string
                 productTypeId: selectedTypeId, // NEW
-                compatibleMachines: compMachines
+                compatibleMachines: compMachines,
+                itemsPerHour: Number(itemsPerHour), // Use local state
+                extrusionMix: mixItems.filter(m => m.type || m.subType || m.qty) // Save only filled items
             });
             onSave();
         } catch (e: any) {
@@ -325,7 +372,7 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
             <Input label="Cód" value={code} onChange={e => setCode(e.target.value)} required />
             <Input label="Produto" value={name} onChange={e => setName(e.target.value)} required className="md:col-span-3" />
             <Input label="Descrição" value={desc} onChange={e => setDesc(e.target.value)} className="md:col-span-4" />
-            <Input label="Peso (g)" type="text" value={weight} onChange={e => setWeight(e.target.value)} placeholder="0.00" />
+            <Input label="Peso (Kg)" type="text" value={weight} onChange={e => setWeight(e.target.value)} placeholder="0.00" />
 
             {/* Cost Input with BOM Refresh */}
             <div className="relative">
@@ -340,6 +387,40 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                         <RefreshCw size={14} className={isCalculating ? 'animate-spin' : ''} />
                     </button>
                 )}
+            </div>
+
+            <div className="flex flex-col">
+                <Input
+                    label="Meta (Peças/Hora)"
+                    type="number"
+                    value={itemsPerHour}
+                    onChange={e => {
+                        const val = e.target.value;
+                        setItemsPerHour(val);
+                        if (Number(val) > 0) {
+                            setCycleTime((60 / Number(val)).toFixed(4));
+                        } else {
+                            setCycleTime('');
+                        }
+                    }}
+                    placeholder="0"
+                />
+            </div>
+
+            <div className="flex flex-col">
+                <Input
+                    label="Tempo Prod. (min/pç)"
+                    type="number"
+                    value={cycleTime}
+                    onChange={e => {
+                        const val = e.target.value;
+                        setCycleTime(val);
+                        if (Number(val) > 0) {
+                            setItemsPerHour((60 / Number(val)).toFixed(2));
+                        }
+                    }}
+                    placeholder="Auto (min)"
+                />
             </div>
 
             <div className="flex flex-col">
@@ -423,6 +504,67 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                     ))}
                 </div>
             </div>
+
+            {/* SEÇÃO DA RECEITA (MIX) - Visível apenas se compatível com Extrusão ou Categoria for Extrusão */}
+            {(compMachines.some(m => machines.find(mac => mac.code === m)?.sector === 'Extrusão') || category === 'Extrusão' || category === 'Bobina') && (
+                <div className="md:col-span-4 border border-blue-200 rounded-lg p-4 bg-blue-50 mt-2">
+                    <h4 className="text-sm font-bold text-blue-800 mb-3 flex items-center">
+                        <Package size={16} className="mr-2" /> Receita Padrão (Mistura/Mix)
+                    </h4>
+                    <p className="text-xs text-blue-600 mb-4">Defina a porcentagem padrão dos materiais. O total deve ser 100%.</p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {mixItems.map((item, idx) => (
+                            <div key={idx} className="flex gap-2 items-center">
+                                <select
+                                    className="w-24 px-2 py-1.5 text-xs border rounded bg-white"
+                                    value={item.type}
+                                    onChange={e => {
+                                        const newMix = [...mixItems];
+                                        newMix[idx].type = e.target.value;
+                                        setMixItems(newMix);
+                                    }}
+                                >
+                                    <option value="">Tipo...</option>
+                                    <option value="FLAKE">FLAKE</option>
+                                    <option value="APARA">APARA</option>
+                                    <option value="VIRGEM">VIRGEM</option>
+                                </select>
+                                <select
+                                    className="flex-1 px-2 py-1.5 text-xs border rounded bg-white"
+                                    value={item.subType}
+                                    onChange={e => {
+                                        const newMix = [...mixItems];
+                                        newMix[idx].subType = e.target.value;
+                                        setMixItems(newMix);
+                                    }}
+                                >
+                                    <option value="">Material/Cor...</option>
+                                    <option value="CRISTAL">CRISTAL</option>
+                                    <option value="BRANCO">BRANCO</option>
+                                    <option value="PRETO">PRETO</option>
+                                    <option value="AZUL">AZUL</option>
+                                    <option value="NATURAL">NATURAL</option>
+                                </select>
+                                <div className="relative w-24">
+                                    <input
+                                        type="number"
+                                        className="w-full px-2 py-1.5 text-xs border rounded text-right font-bold"
+                                        placeholder="0"
+                                        value={item.qty}
+                                        onChange={e => {
+                                            const newMix = [...mixItems];
+                                            newMix[idx].qty = e.target.value;
+                                            setMixItems(newMix);
+                                        }}
+                                    />
+                                    <span className="absolute right-6 top-1.5 text-[10px] text-slate-400 font-bold">%</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             <button
                 type="submit"
@@ -855,7 +997,8 @@ const MachineForm: React.FC<{ onSave: () => void; initialData?: Machine }> = ({ 
     const [sector, setSector] = useState<MachineSector>(initialData?.sector || 'Termoformagem');
     const [capacity, setCapacity] = useState(initialData?.productionCapacity?.toString() || '');
     const [unit, setUnit] = useState(initialData?.capacity_unit || 'kg/h'); // NEW
-    const [machineValue, setMachineValue] = useState(initialData?.machine_value ? initialData.machine_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''); // NEW
+    const [machineValue, setMachineValue] = useState(initialData?.machine_value ? initialData.machine_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '');
+    const [activity, setActivity] = useState(initialData?.activity || ''); // NEW
     const [acquisitionDate, setAcquisitionDate] = useState(initialData?.acquisitionDate ? new Date(initialData.acquisitionDate).toISOString().split('T')[0] : '');
     const [sectorsList, setSectorsList] = useState<Sector[]>([]);
 
@@ -876,7 +1019,9 @@ const MachineForm: React.FC<{ onSave: () => void; initialData?: Machine }> = ({ 
             if (initialData.sector) setSector(initialData.sector);
             if (initialData.productionCapacity) setCapacity(initialData.productionCapacity.toString());
             if (initialData.capacity_unit) setUnit(initialData.capacity_unit);
+            if (initialData.capacity_unit) setUnit(initialData.capacity_unit);
             if (initialData.machine_value) setMachineValue(initialData.machine_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 }));
+            if (initialData.activity) setActivity(initialData.activity); // NEW
             if (initialData.acquisitionDate) setAcquisitionDate(new Date(initialData.acquisitionDate).toISOString().split('T')[0]);
         }
     }, [initialData]);
@@ -892,6 +1037,7 @@ const MachineForm: React.FC<{ onSave: () => void; initialData?: Machine }> = ({ 
                 productionCapacity: capacity ? Number(capacity) : undefined,
                 capacity_unit: unit,
                 machine_value: machineValue ? parseFloat(machineValue.replace(/\./g, '').replace(',', '.')) : undefined,
+                activity: activity, // NEW
                 acquisitionDate: acquisitionDate || undefined
             });
             onSave();
@@ -929,8 +1075,13 @@ const MachineForm: React.FC<{ onSave: () => void; initialData?: Machine }> = ({ 
                 <Input label="Nome da Máquina" value={name} onChange={e => setName(e.target.value)} required placeholder="Ex: Extrusora Principal" />
             </div>
 
+            {/* NEW ACTIVITY FIELD */}
+            <div className="col-span-12 md:col-span-4">
+                <Input label="Atividade (Função)" value={activity} onChange={e => setActivity(e.target.value)} placeholder="Ex: Extrusar" />
+            </div>
+
             {/* ROW 2: Capacity | Unit | Value | Date (Optional) */}
-            <div className="col-span-12 md:col-span-4 flex flex-col">
+            <div className="col-span-12 md:col-span-8 flex flex-col">
                 <label className="text-sm font-semibold text-slate-700 mb-1">Capacidade Produtiva</label>
                 <div className="flex gap-2">
                     <Input className="flex-1" type="number" value={capacity} onChange={e => setCapacity(e.target.value)} placeholder="0" label="" />
@@ -977,6 +1128,9 @@ const MachineForm: React.FC<{ onSave: () => void; initialData?: Machine }> = ({ 
 };
 
 const EngineeringRegistrations: React.FC = () => {
+    // State for MOCKUP
+    const [viewStructure, setViewStructure] = useState<string | null>(null);
+
     const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'machines' | 'sectors' | 'operators' | 'downtime' | 'scrap' | 'shifts' | 'types'>('products');
 
     // Data States
@@ -1054,6 +1208,10 @@ const EngineeringRegistrations: React.FC = () => {
     const [isDeleting, setIsDeleting] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+    // Route Editor State
+    const [routeModalOpen, setRouteModalOpen] = useState(false);
+    const [selectedProductForRoute, setSelectedProductForRoute] = useState<Product | null>(null);
+
     // Load Initial Data
     useEffect(() => {
         refreshAllData();
@@ -1121,6 +1279,7 @@ const EngineeringRegistrations: React.FC = () => {
             else if (deleteType === 'categoria') await deleteProductCategory(itemToDelete.id);
             else if (deleteType === 'setor') await deleteSector(itemToDelete.id);
             else if (deleteType === 'turno') await deleteWorkShift(itemToDelete.id);
+            else if (deleteType === 'tipo de produto') await deleteProductType(itemToDelete.id);
 
             await refreshAllData();
             setDeleteModalOpen(false);
@@ -1160,11 +1319,12 @@ const EngineeringRegistrations: React.FC = () => {
         if (deleteType === 'categoria') return `Tem certeza que deseja excluir a categoria "${itemToDelete.name}"?`;
         if (deleteType === 'setor') return `Tem certeza que deseja excluir o setor "${itemToDelete.name}"?`;
         if (deleteType === 'turno') return `Tem certeza que deseja excluir o turno "${itemToDelete.name}"?`;
+        if (deleteType === 'tipo de produto') return `Tem certeza que deseja excluir o tipo de produto "${itemToDelete.name}"?`;
         return 'Tem certeza?';
     };
 
     return (
-        <div className="p-6 md:max-w-7xl mx-auto space-y-6">
+        <div className="p-6 w-full max-w-[95rem] mx-auto space-y-6">
             <DeleteConfirmationModal
                 isOpen={deleteModalOpen}
                 onClose={() => setDeleteModalOpen(false)}
@@ -1255,6 +1415,7 @@ const EngineeringRegistrations: React.FC = () => {
                         { header: 'Código', render: (m: Machine) => <span className="font-mono font-bold text-slate-700">{m.code}</span> },
                         { header: 'Nome', render: (m: Machine) => m.name },
                         { header: 'Setor', render: (m: Machine) => <span className={`px-2 py-1 rounded text-xs font-semibold bg-blue-100 text-blue-800`}>{m.sector}</span> },
+                        { header: 'Atividade', render: (m: Machine) => m.activity || '-' }, // NEW
                         {
                             header: 'Capacidade',
                             render: (m: Machine) => m.productionCapacity
@@ -1283,6 +1444,20 @@ const EngineeringRegistrations: React.FC = () => {
                             render: (s: Sector) => s.isProductive
                                 ? <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">Produtivo</span>
                                 : <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600">Apoio / Geral</span>
+                        },
+                        {
+                            header: 'Ações',
+                            render: (p: Product) => (
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => setViewStructure(p.id || p.codigo)} // Prefer ID, fallback to code
+                                        className="p-1.5 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded transition-colors"
+                                        title="Ver Estrutura / Custos"
+                                    >
+                                        <Box size={16} />
+                                    </button>
+                                </div>
+                            )
                         }
                     ]}
                     onDelete={(s) => openDeleteModal(s, 'setor')}
@@ -1290,14 +1465,17 @@ const EngineeringRegistrations: React.FC = () => {
                     onSaveSuccess={refreshAllData}
                 />}
 
+
+
+
                 {activeTab === 'products' && <SimpleTable<Product>
                     data={products}
                     columns={[
-                        { header: 'Cód', render: (p: Product) => <span className="font-mono text-xs">{p.codigo}</span> },
+                        { header: 'Cód', className: 'w-[80px]', render: (p: Product) => <span className="font-mono text-xs">{p.codigo}</span> },
                         {
-                            header: 'Produto', render: (p: Product) => (
+                            header: 'Produto', className: 'w-[400px]', render: (p: Product) => (
                                 <div>
-                                    <div className="font-bold text-slate-800">{p.produto}</div>
+                                    <div className="font-bold text-slate-800 truncate max-w-[380px]" title={p.produto}>{p.produto}</div>
                                     <div className="flex gap-2 mt-1">
                                         <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${p.type === 'INTERMEDIATE' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-700'}`}>
                                             {p.type === 'INTERMEDIATE' ? 'Bobina' : 'Acabado'}
@@ -1310,7 +1488,7 @@ const EngineeringRegistrations: React.FC = () => {
                             )
                         },
                         {
-                            header: 'Compatibilidade', render: (p: Product) => (
+                            header: 'Compatibilidade', className: 'w-auto', render: (p: Product) => (
                                 <div className="flex flex-wrap gap-1 max-w-[240px]">
                                     {p.compatibleMachines && p.compatibleMachines.length > 0 ? (
                                         p.compatibleMachines.map(mCode => (
@@ -1335,8 +1513,34 @@ const EngineeringRegistrations: React.FC = () => {
                             )
                         },
                         { header: 'Meta (Pç/h)', render: (p: Product) => p.itemsPerHour ? <span className="font-mono bg-slate-100 px-2 rounded">{p.itemsPerHour}</span> : '-' },
-                        { header: 'Peso', render: (p: Product) => p.pesoLiquido },
+                        { header: 'Peso (Kg)', render: (p: Product) => p.pesoLiquido },
                         { header: 'Custo', render: (p: Product) => `R$ ${p.custoUnit}` },
+                        {
+                            header: 'Estrutura', render: (p: Product) => (
+                                <button
+                                    onClick={() => setViewStructure(p.id || p.codigo)}
+                                    className="p-1.5 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded transition-colors"
+                                    title="Ver Estrutura / Custos"
+                                >
+                                    <Box size={16} />
+                                </button>
+                            )
+                        },
+                        {
+                            header: 'Roteiro', render: (p: Product) => (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedProductForRoute(p);
+                                        setRouteModalOpen(true);
+                                    }}
+                                    className="p-1.5 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-md transition-colors shadow-sm"
+                                    title="Editar Roteiro de Produção"
+                                >
+                                    <Workflow size={16} />
+                                </button>
+                            )
+                        },
                     ]}
                     onDelete={(p) => openDeleteModal(p, 'produto')}
                     FormComponent={ProductForm}
@@ -1431,57 +1635,75 @@ const EngineeringRegistrations: React.FC = () => {
             </div>
 
             {/* Guided Mode Help Modal */}
-            {
-                isGuidedMode && showHelpModal && (
-                    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] p-4 animate-in fade-in duration-200">
-                        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 relative animate-in zoom-in-95 slide-in-from-bottom-4 duration-300 border border-slate-100">
+            {isGuidedMode && showHelpModal && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] p-4 animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 relative animate-in zoom-in-95 slide-in-from-bottom-4 duration-300 border border-slate-100">
+                        <button
+                            onClick={() => setShowHelpModal(false)}
+                            className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-2 rounded-full transition-colors"
+                        >
+                            <X size={20} />
+                        </button>
+
+                        <div className="flex flex-col items-center text-center space-y-4 mt-2">
+                            <div className="bg-blue-50 p-4 rounded-full text-blue-600 ring-4 ring-blue-50/50">
+                                <Lightbulb size={32} strokeWidth={1.5} />
+                            </div>
+
+                            <div className="space-y-2">
+                                <h3 className="text-xl font-bold text-slate-800">
+                                    {standardTabs.find(t => t.id === activeTab)?.label}
+                                </h3>
+                                <div className="h-1 w-12 bg-blue-100 mx-auto rounded-full" />
+                            </div>
+
+                            <p className="text-slate-600 leading-relaxed text-sm">
+                                {(() => {
+                                    switch (activeTab) {
+                                        case 'products': return "Aqui você cadastra os produtos finais (acabados), intermediários (bobinas) e componentes. É importante definir o 'Tipo de Produto' corretamente para que o sistema saiba como tratar o item no estoque e na produção.";
+                                        case 'types': return "ATENÇÃO: Este cadastro define as CLASSIFICAÇÕES dos produtos (ex: Matéria Prima, Produto Acabado, Embalagem), e não os produtos em si. Estas categorias ajudam a organizar o estoque e definir regras de movimentação.";
+                                        case 'categories': return "Crie categorias lógicas para agrupar seus produtos em relatórios (ex: 'Linha Premium', 'Linha Econômica'). Isso facilita a análise de vendas e produção.";
+                                        case 'machines': return "Cadastre todas as máquinas e equipamentos produtivos. Informe a capacidade produtiva correta, pois ela será usada para calcular a eficiência (OEE) e o planejamento da produção.";
+                                        case 'sectors': return "Defina as áreas da fábrica (ex: Extrusão, Corte e Solda). Marque como 'Produtivo' os setores que possuem máquinas e apontamento de produção.";
+                                        case 'operators': return "Cadastre os colaboradores que operam as máquinas. Associe-os aos setores corretos para facilitar o apontamento de produção nos tablets/terminais.";
+                                        case 'shifts': return "Configure os turnos de trabalho (ex: Manhã, Tarde, Noite). Defina os horários de início e fim para que o sistema calcule corretamente as horas disponíveis para produção.";
+                                        case 'downtime': return "Crie motivos de parada padronizados (ex: Falta de Energia, Manutenção Mecânica). Associe a setores específicos para que o operador veja apenas as paradas relevantes para a máquina dele.";
+                                        case 'scrap': return "Defina os motivos de refugo (perda de material). Isso ajuda a identificar as principais causas de desperdício na fábrica. Ex: 'Mancha', 'Furo', 'Medida incorreta'.";
+                                        default: return "Utilize esta tela para gerenciar os cadastros básicos do sistema.";
+                                    }
+                                })()}
+                            </p>
+
                             <button
                                 onClick={() => setShowHelpModal(false)}
-                                className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-2 rounded-full transition-colors"
+                                className="bg-blue-600 text-white px-8 py-2.5 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 active:scale-95 w-full sm:w-auto mt-2"
                             >
-                                <X size={20} />
+                                Entendi, vamos lá!
                             </button>
-
-                            <div className="flex flex-col items-center text-center space-y-4 mt-2">
-                                <div className="bg-blue-50 p-4 rounded-full text-blue-600 ring-4 ring-blue-50/50">
-                                    <Lightbulb size={32} strokeWidth={1.5} />
-                                </div>
-
-                                <div className="space-y-2">
-                                    <h3 className="text-xl font-bold text-slate-800">
-                                        {standardTabs.find(t => t.id === activeTab)?.label}
-                                    </h3>
-                                    <div className="h-1 w-12 bg-blue-100 mx-auto rounded-full" />
-                                </div>
-
-                                <p className="text-slate-600 leading-relaxed text-sm">
-                                    {(() => {
-                                        switch (activeTab) {
-                                            case 'products': return "Aqui você cadastra os produtos finais (acabados), intermediários (bobinas) e componentes. É importante definir o 'Tipo de Produto' corretamente para que o sistema saiba como tratar o item no estoque e na produção.";
-                                            case 'types': return "ATENÇÃO: Este cadastro define as CLASSIFICAÇÕES dos produtos (ex: Matéria Prima, Produto Acabado, Embalagem), e não os produtos em si. Estas categorias ajudam a organizar o estoque e definir regras de movimentação.";
-                                            case 'categories': return "Crie categorias lógicas para agrupar seus produtos em relatórios (ex: 'Linha Premium', 'Linha Econômica'). Isso facilita a análise de vendas e produção.";
-                                            case 'machines': return "Cadastre todas as máquinas e equipamentos produtivos. Informe a capacidade produtiva correta, pois ela será usada para calcular a eficiência (OEE) e o planejamento da produção.";
-                                            case 'sectors': return "Defina as áreas da fábrica (ex: Extrusão, Corte e Solda). Marque como 'Produtivo' os setores que possuem máquinas e apontamento de produção.";
-                                            case 'operators': return "Cadastre os colaboradores que operam as máquinas. Associe-os aos setores corretos para facilitar o apontamento de produção nos tablets/terminais.";
-                                            case 'shifts': return "Configure os turnos de trabalho (ex: Manhã, Tarde, Noite). Defina os horários de início e fim para que o sistema calcule corretamente as horas disponíveis para produção.";
-                                            case 'downtime': return "Crie motivos de parada padronizados (ex: Falta de Energia, Manutenção Mecânica). Associe a setores específicos para que o operador veja apenas as paradas relevantes para a máquina dele.";
-                                            case 'scrap': return "Defina os motivos de refugo (perda de material). Isso ajuda a identificar as principais causas de desperdício na fábrica. Ex: 'Mancha', 'Furo', 'Medida incorreta'.";
-                                            default: return "Utilize esta tela para gerenciar os cadastros básicos do sistema.";
-                                        }
-                                    })()}
-                                </p>
-
-                                <button
-                                    onClick={() => setShowHelpModal(false)}
-                                    className="bg-blue-600 text-white px-8 py-2.5 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 active:scale-95 w-full sm:w-auto mt-2"
-                                >
-                                    Entendi, vamos lá!
-                                </button>
-                            </div>
                         </div>
                     </div>
-                )
-            }
+                </div>
+            )}
+
+            {/* ROUTE EDITOR MODAL */}
+            {routeModalOpen && selectedProductForRoute && (
+                <RouteEditorModal
+                    product={selectedProductForRoute}
+                    onClose={() => {
+                        setRouteModalOpen(false);
+                        setSelectedProductForRoute(null);
+                    }}
+                />
+            )}
+
+            {/* MOCKUP MODAL */}
+            {viewStructure && (
+                <div className="fixed inset-0 z-[80] flex items-center justify-center p-8 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="w-full max-w-5xl">
+                        <StructureExplorer productId={viewStructure} onClose={() => setViewStructure(null)} />
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

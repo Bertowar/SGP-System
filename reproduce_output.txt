@@ -1,0 +1,13 @@
+﻿REPRODUCE_START
+{"step":"init","product":"P-08 EMB RET C/TP ARTIC NOBRE","code":9008,"orgId":"ad3dcfa8-9b4f-4745-bbbe-f1f6db9c91a9"}
+{"step":"dto","quantity":1000}
+{"step":"bom_fetched","count":4}
+{"step":"calc","material_id":"125535c8-8f23-4fcc-9c3b-3fa8a11cbf90","bom_qty":1,"order_qty":1000,"result":1000}
+{"step":"calc","material_id":"d5aa7455-cf54-4321-924b-2dec3c56ee28","bom_qty":0.6,"order_qty":1000,"result":600}
+{"step":"calc","material_id":"9c3db9f8-1bc7-4014-a9c8-5cc325245862","bom_qty":0.12,"order_qty":1000,"result":120}
+{"step":"calc","material_id":"87cd59ea-48a2-46c8-b0f0-a444b9955bb9","bom_qty":1.327,"order_qty":1000,"result":1327}
+{"step":"recursion_found","child":"BOBINA CRISTAL","code":9655}
+{"step":"child_op_start","child_qty":1327}
+{"step":"child_calc","material_id":"3eef0b2c-53f1-486b-8744-7481501a70a5","bom_qty":0.5,"parent_qty":1327,"result":663.5}
+{"step":"child_calc","material_id":"4e97d300-740c-4950-b7ee-b5030ac0adc2","bom_qty":0.001,"parent_qty":1327,"result":1.327}
+{"step":"child_calc","material_id":"88b9cfaf-a1ec-46d6-b508-ecac5923d236","bom_qty":0.65,"parent_qty":1327,"result":862.5500000000001}

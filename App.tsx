@@ -1,224 +1,65 @@
 
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
-import EntryForm from './pages/EntryForm';
 import ProductionList from './pages/ProductionList';
+import EntryForm from './pages/EntryForm';
+import FastEntryPage from './pages/FastEntryPage';
 import ProductionPlanPage from './pages/ProductionPlanPage';
-import AlertsPage from './pages/AlertsPage';
-import SettingsPage from './pages/SettingsPage';
-import LoginPage from './pages/LoginPage';
 import InventoryPage from './pages/InventoryPage';
-import InventoryAuditPage from './pages/InventoryAuditPage';
-import InventoryKardexPage from './pages/InventoryKardexPage';
-import BOMPage from './pages/BOMPage';
-import ProductTargetsPage from './pages/ProductTargetsPage';
+import PurchasePage from './pages/PurchasePage';
 import LogisticsPage from './pages/LogisticsPage';
 import LegacyImportPage from './pages/LegacyImportPage';
-import EngineeringRegistrations from './pages/EngineeringRegistrations';
+import SettingsPage from './pages/SettingsPage';
 import FinancialPage from './pages/FinancialPage';
-import PurchasePage from './pages/PurchasePage';
-import FastEntryPage from './pages/FastEntryPage';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { Loader2 } from 'lucide-react';
-
-import { GlobalErrorBoundary } from './components/GlobalErrorBoundary';
-import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import SalesSummaryPage from './pages/SalesSummaryPage';
+import LoginPage from './pages/LoginPage';
+import SuperAdminPage from './pages/SuperAdminPage';
+import InventoryAuditPage from './pages/InventoryAuditPage';
+import InventoryKardexPage from './pages/InventoryKardexPage';
+import ProductTargetsPage from './pages/ProductTargetsPage';
+import BOMPage from './pages/BOMPage';
+import AlertsPage from './pages/AlertsPage';
+import EngineeringRegistrations from './pages/EngineeringRegistrations';
 import { OrganizationSettings } from './pages/OrganizationSettings';
-
-
-// ... existing imports
-
-import { SuperAdminPage } from './pages/SuperAdminPage';
-
-const ProtectedRoute = ({ children, allowedRoles }: { children?: React.ReactNode, allowedRoles?: string[] }) => {
-  const { user, loading } = useAuth();
-  const location = useLocation();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <Loader2 className="animate-spin text-brand-600" size={48} />
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
-  }
-
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
-    if (user.role === 'operator') return <Navigate to="/entry" replace />;
-    return <Navigate to="/" replace />;
-  }
-
-  return <Layout>{children}</Layout>;
-};
-
-const PublicOnlyRoute = ({ children }: { children?: React.ReactNode }) => {
-  const { user, loading } = useAuth();
-  if (loading) return null;
-  if (user) {
-    if (user.role === 'operator') return <Navigate to="/entry" replace />;
-    return <Navigate to="/" replace />;
-  }
-  return <>{children}</>;
-};
-
-// ROLE CONSTANTS
-// ROLE CONSTANTS
-const ALL_MANAGEMENT = ['owner', 'admin', 'manager', 'supervisor'];
-const FULL_ACCESS = ['owner', 'admin', 'manager', 'supervisor', 'operator', 'seller'];
-const ADMIN_ONLY = ['owner', 'admin', 'manager']; // Settings might be restricted for supervisor
+import GlobalErrorBoundary from './components/GlobalErrorBoundary';
+// TODO: Add other routes back incrementally if needed, or all at once if confident
 
 function App() {
+  // console.log("App: Rendering Full Version");
   return (
     <GlobalErrorBoundary>
       <AuthProvider>
         <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={
-              <PublicOnlyRoute>
-                <LoginPage />
-              </PublicOnlyRoute>
-            } />
-
-
-
-            <Route path="/forgot-password" element={
-              <PublicOnlyRoute>
-                <ForgotPasswordPage />
-              </PublicOnlyRoute>
-            } />
-
-            <Route path="/reset-password" element={
-              <Navigate to="/login" /> /* Placeholder: In real app, this should be a ResetPasswordPage */
-            } />
-
-            {/* PRODUCTION MODULE */}
-            <Route path="/" element={
-              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
-                <Dashboard />
-              </ProtectedRoute>
-            } />
-
-            <Route path="/production-plan" element={
-              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
-                <ProductionPlanPage />
-              </ProtectedRoute>
-            } />
-
-            <Route path="/list" element={
-              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
-                <ProductionList />
-              </ProtectedRoute>
-            } />
-
-            <Route path="/alerts" element={
-              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
-                <AlertsPage />
-              </ProtectedRoute>
-            } />
-
-            {/* SUPER ADMIN */}
-            <Route path="/admin/tenants" element={
-              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
-                <SuperAdminPage />
-              </ProtectedRoute>
-            } />
-
-            <Route path="/settings" element={
-              <ProtectedRoute allowedRoles={ADMIN_ONLY}>
-                <SettingsPage />
-              </ProtectedRoute>
-            } />
-
-            <Route path="/organization" element={
-              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
-                <OrganizationSettings />
-              </ProtectedRoute>
-            } />
-
-            <Route path="/entry" element={
-              <ProtectedRoute allowedRoles={FULL_ACCESS}>
-                <EntryForm />
-              </ProtectedRoute>
-            } />
-
-            <Route path="/fast-entry" element={
-              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
-                <FastEntryPage />
-              </ProtectedRoute>
-            } />
-
-            {/* INVENTORY MODULE */}
-            <Route path="/inventory" element={
-              <ProtectedRoute allowedRoles={FULL_ACCESS}>
-                <InventoryPage />
-              </ProtectedRoute>
-            } />
-
-            <Route path="/inventory/audit" element={
-              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
-                <InventoryAuditPage />
-              </ProtectedRoute>
-            } />
-
-            <Route path="/inventory/kardex" element={
-              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
-                <InventoryKardexPage />
-              </ProtectedRoute>
-            } />
-
-            <Route path="/purchasing" element={
-              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
-                <PurchasePage />
-              </ProtectedRoute>
-            } />
-
-            {/* ENGINEERING MODULE */}
-            <Route path="/bom" element={
-              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
-                <BOMPage />
-              </ProtectedRoute>
-            } />
-
-            <Route path="/targets" element={
-              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
-                <ProductTargetsPage />
-              </ProtectedRoute>
-            } />
-
-            <Route path="/engineering/registrations" element={
-              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
-                <EngineeringRegistrations />
-              </ProtectedRoute>
-            } />
-
-            {/* LOGISTICS MODULE */}
-            <Route path="/logistics" element={
-              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
-                <LogisticsPage />
-              </ProtectedRoute>
-            } />
-
-            {/* NEW ROUTE: IMPORT TXT */}
-            <Route path="/logistics/import" element={
-              <ProtectedRoute allowedRoles={ALL_MANAGEMENT}>
-                <LegacyImportPage />
-              </ProtectedRoute>
-            } />
-
-            {/* FINANCIAL MODULE */}
-            <Route path="/financial" element={
-              <ProtectedRoute allowedRoles={ADMIN_ONLY}>
-                <FinancialPage />
-              </ProtectedRoute>
-            } />
-
-            <Route path="*" element={<Navigate to="/login" replace />} />
-          </Routes>
+          <Layout>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/list" element={<ProductionList />} />
+              <Route path="/entry" element={<EntryForm />} />
+              <Route path="/fast-entry" element={<FastEntryPage />} />
+              <Route path="/production-plan" element={<ProductionPlanPage />} />
+              <Route path="/inventory" element={<InventoryPage />} />
+              <Route path="/inventory/audit" element={<InventoryAuditPage />} />
+              <Route path="/inventory/kardex" element={<InventoryKardexPage />} />
+              <Route path="/purchase" element={<PurchasePage />} />
+              <Route path="/logistics" element={<LogisticsPage />} />
+              <Route path="/logistics/import" element={<LegacyImportPage />} />
+              <Route path="/financial" element={<FinancialPage />} />
+              <Route path="/financial/sales" element={<SalesSummaryPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/engineering/bom" element={<BOMPage />} />
+              <Route path="/engineering/targets" element={<ProductTargetsPage />} />
+              <Route path="/engineering/targets" element={<ProductTargetsPage />} />
+              <Route path="/settings/users" element={<SuperAdminPage />} />
+              <Route path="/super-admin" element={<SuperAdminPage />} />
+              <Route path="/alerts" element={<AlertsPage />} />
+              <Route path="/engineering/products" element={<EngineeringRegistrations />} />
+              <Route path="/organization" element={<OrganizationSettings />} />
+            </Routes>
+          </Layout>
         </BrowserRouter>
       </AuthProvider>
     </GlobalErrorBoundary>
@@ -226,4 +67,3 @@ function App() {
 }
 
 export default App;
-

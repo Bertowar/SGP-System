@@ -17,6 +17,7 @@ interface AuthContextType {
   cleanStorage: () => void;
   realRole: UserProfile['role'] | null;
   refreshProfile: () => Promise<void>;
+  switchOrg: (orgId: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -31,6 +32,7 @@ const AuthContext = createContext<AuthContextType>({
   cleanStorage: () => { },
   realRole: null,
   refreshProfile: async () => { },
+  switchOrg: async () => { },
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -39,6 +41,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [realRole, setRealRole] = useState<UserProfile['role'] | null>(null);
+
+  const [realIsSuperAdmin, setRealIsSuperAdmin] = useState(false);
 
   // Ref to track the last fetched user ID to avoid redundant fetches
   const lastFetchedUserId = useRef<string | null>(null);
@@ -52,6 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(null);
           setCurrentOrg(null);
           setRealRole(null);
+          setRealIsSuperAdmin(false);
           setLoading(false);
           lastFetchedUserId.current = null;
         }
@@ -73,6 +78,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (profile) {
             setUser(profile);
             setRealRole(profile.role);
+            setRealIsSuperAdmin(profile.isSuperAdmin || false);
             lastFetchedUserId.current = currentSession.user.id;
 
             // Fetch Organization Details
@@ -89,9 +95,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
 
           } else {
-            console.warn("AuthContext: Profile not found for authenticated user.");
-            setUser(null);
+            console.warn("AuthContext: Profile not found for authenticated user. Using session fallback.");
+            // Fallback: Create a minimal user object from session so they are not "logged out"
+            setUser({
+              id: currentSession.user.id,
+              email: currentSession.user.email || '',
+              role: 'operator', // Default fallback role
+              fullName: currentSession.user.user_metadata?.name || 'Usuário Sem Perfil',
+              avatarUrl: '',
+              organizationId: null,
+              isSuperAdmin: false
+            });
             setCurrentOrg(null);
+            setRealIsSuperAdmin(false);
           }
         }
       } catch (error) {
@@ -99,6 +115,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (isMounted) {
           setUser(null);
           setCurrentOrg(null);
+          setRealIsSuperAdmin(false);
         }
       } finally {
         if (isMounted) setLoading(false);
@@ -106,32 +123,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     // 1. Initial Session Check (Get existing session from storage)
+    console.log("AuthContext: Starting initial session check...");
     supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log("AuthContext: getSession resolved", session?.user?.email);
       if (isMounted) {
         setSession(session);
         fetchProfile(session);
       }
-    });
+    }).catch(err => console.error("AuthContext: getSession failed", err));
 
     // 2. Subscribe to Auth Changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      console.log(`AuthContext: Auth event ${_event}`);
+      console.log(`AuthContext: Auth event ${_event}`, newSession?.user?.email);
       if (isMounted) {
         setSession(newSession);
         // If event is SIGN_OUT, we can clear immediately
         if (_event === 'SIGNED_OUT') {
+          console.log("AuthContext: Handling SIGNED_OUT");
           setUser(null);
           setCurrentOrg(null);
           setRealRole(null);
+          setRealIsSuperAdmin(false);
           lastFetchedUserId.current = null;
           setLoading(false);
         } else {
+          console.log("AuthContext: Calling fetchProfile from onAuthStateChange");
           fetchProfile(newSession);
         }
       }
     });
 
     return () => {
+      console.log("AuthContext: Unmounting");
       isMounted = false;
       subscription.unsubscribe();
     };
@@ -154,13 +177,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSession(null);
       localStorage.removeItem('sb-ojnrtqejmnssmkgywufa-auth-token'); // Clear Supabase standard token
       localStorage.removeItem('sgp-auth-token'); // Clear our custom key if used
+      setRealIsSuperAdmin(false);
     }
   };
 
   const debugSetRole = (role: string) => {
-    if (user) {
-      setUser({ ...user, role: role as any });
-      console.log(`[DEBUG] Role switched to: ${role}`);
+    setUser(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        role: role as any,
+        // Update super admin status based on role for simulation
+        // Use realIsSuperAdmin instead of user.isSuperAdmin to ensure we can restore it
+        isSuperAdmin: (role === 'owner' || role === 'admin') ? realIsSuperAdmin : false
+      };
+    });
+    console.log(`[DEBUG] Role switched to: ${role}`);
+  };
+
+  const switchOrg = async (orgId: string) => {
+    try {
+      setLoading(true);
+      await import('../services/auth').then(m => m.switchOrganization(orgId));
+      await refreshProfile();
+      // Optional: reload page to ensure clean state
+      // window.location.reload(); 
+    } catch (e) {
+      console.error("AuthContext: Error switching org", e);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -172,9 +217,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (profile) {
         setUser(profile);
         setRealRole(profile.role);
-        lastFetchedUserId.current = session.user.id;
+        setRealIsSuperAdmin(profile.isSuperAdmin || false);
+        // lastFetchedUserId.current = session.user.id; // Removed this to force re-eval if needed
 
         if (profile.organizationId) {
+          // Re-fetch current org details
           const { data: org } = await supabase
             .from('organizations')
             .select('*')
@@ -204,10 +251,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     debugSetRole,
     cleanStorage,
     realRole,
-    refreshProfile
+    refreshProfile,
+    switchOrg
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => useContext(AuthContext);
+

@@ -1,0 +1,6 @@
+DEBUG START FILE
+OPS_COUNT: 1
+OP_ITEM: {"id":"OP-2026-0006","product_code":9655}
+SPECIFIC_OP_SEARCH: 2
+FOUND: {"id":"98a193f8-a0e9-4238-aafa-9ddcef75d4ad","production_order_id":"OP-2026-0014","operator_id":38,"organization_id":"ad3dcfa8-9b4f-4745-bbbe-f1f6db9c91a9","qty_ok":10,"measured_weight":"0"}
+FOUND: {"id":"2b915ce9-87f0-4e82-9ffd-eb9d2c7f9a95","production_order_id":"OP-2026-0014","operator_id":38,"organization_id":"ad3dcfa8-9b4f-4745-bbbe-f1f6db9c91a9","qty_ok":5,"measured_weight":"0"}

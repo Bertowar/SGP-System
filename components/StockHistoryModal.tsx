@@ -84,7 +84,7 @@ export const StockHistoryModal: React.FC<StockHistoryModalProps> = ({
                                             item.type === 'OUT' ? 'text-red-600' :
                                                 'text-blue-600'
                                             }`}>
-                                            {item.type === 'OUT' ? '-' : '+'}{Number(item.quantity).toLocaleString('pt-BR')}
+                                            {item.type === 'OUT' ? '-' : '+'}{Number(item.quantity).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
                                         </td>
                                         <td className="px-3 py-3 text-slate-600 max-w-xs truncate" title={item.notes}>
                                             {item.notes || '-'}

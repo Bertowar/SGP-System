@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Upload, FileText, Trash2, Calculator, Table as TableIcon, Loader2, ArrowLeft, Building2, Store, Calendar, AlertTriangle, Sigma, Layers, Search, Filter, Package, Database, X, CheckCircle2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useProducts } from '../hooks/useQueries';
+import { processSalesImport, SalesImportItem } from '../services/storage';
 
 // Interfaces for Report Data
 interface ReportItem {
@@ -11,10 +12,10 @@ interface ReportItem {
     REFERENCIA: string;
     DESCRICAO: string; // Captured description
     LINHA: string;     // Extracted last word (LEVE, ULTRA, NOBRE)
-    QTDADE: string; 
-    TOTAL: string;  
-    qtyValue: number; 
-    totalValue: number; 
+    QTDADE: string;
+    TOTAL: string;
+    qtyValue: number;
+    totalValue: number;
 }
 
 interface ReportSummary {
@@ -23,16 +24,16 @@ interface ReportSummary {
     totalIPI: number;
     fileName: string;
     fileSize: string;
-    period: string; 
-    rawPeriod: string; 
-    identity?: string; 
+    period: string;
+    rawPeriod: string;
+    identity?: string;
 }
 
 // Interface for Merged Items
 interface ConsolidatedItem {
     id: string;
     reference: string;
-    line: string; 
+    line: string;
     origin: 'MATRIZ' | 'FILIAL' | 'AMBOS';
     qtyMatriz: number;
     qtyFilial: number;
@@ -40,10 +41,10 @@ interface ConsolidatedItem {
     valMatriz: number;
     valFilial: number;
     valTotal: number;
-    splitString: string; 
-    category: string; 
-    isCellRed: boolean; 
-    isRowRed: boolean;  
+    splitString: string;
+    category: string;
+    isCellRed: boolean;
+    isRowRed: boolean;
 }
 
 // Interface for Product Aggregation (Tab D)
@@ -64,10 +65,98 @@ const LegacyImportPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'A' | 'B' | 'C' | 'D'>('A');
     const [isParsing, setIsParsing] = useState(false);
     const [showPreviewModal, setShowPreviewModal] = useState(false);
-    
+
+    // Database Saving State
+    const [isSaving, setIsSaving] = useState(false);
+    const [showConfirmModal, setShowConfirmModal] = useState<{ message: string; isError: boolean } | null>(null);
+    const [forceSave, setForceSave] = useState(false);
+
+    // Helper to extract date from the period string (e.g. "01/05/2026 a 15/05/2026")
+    const extractDateFromPeriod = (periodStr: string): string => {
+        try {
+            // Assumes format "DD/MM/YYYY a ..." or just "DD/MM/YYYY" 
+            // We want the END date because it represents the accumulation point
+            const parts = periodStr.split(' a ');
+            const dateStr = parts.length > 1 ? parts[1].trim() : parts[0].trim();
+
+            const [d, m, y] = dateStr.split('/');
+            return `${y}-${m}-${d}`;
+        } catch {
+            return new Date().toISOString().split('T')[0]; // Fallback to today
+        }
+    };
+
+    const handleSaveToDatabase = async (override: boolean = false) => {
+        if (!override) setShowConfirmModal(null); // Reset modal if starting new
+        setIsSaving(true);
+
+        try {
+            // 1. Prepare Data
+            // We use the same map logic to ensure IDs are correct
+            // CHANGED: Use productSummaryData to match "Resumo Produtos" logic (Aggregated by Reference/Product)
+            const itemsToSave: SalesImportItem[] = productSummaryData.map(item => {
+                // Determine consolidated ID (prefer item's own logic if valid, else lookup)
+                let idConsolidado = (item.nobreId && item.nobreId !== '-') ? item.nobreId : null;
+                if (!idConsolidado) {
+                    idConsolidado = referenceToConsolidatedIdMap.get(item.reference) || null;
+                }
+
+                return {
+                    reference: item.reference,
+                    nobreId: idConsolidado,
+                    qtyTotal: item.qtyTotal,
+                    valTotal: item.valTotal,
+                    qtyMatriz: item.qtyMatriz,
+                    valMatriz: item.valMatriz,
+                    qtyFilial: item.qtyFilial,
+                    valFilial: item.valFilial
+                };
+            });
+
+            // 2. Extract Date (Use Matrix or Filial date, preferring the latest/non-empty)
+            // Ideally they should be the same. We use the Raw Period string we parsed earlier.
+            const periodRaw = summaryA.rawPeriod || summaryB.rawPeriod;
+            if (!periodRaw) throw new Error("Não foi possível identificar a data do relatório.");
+
+            const fileDate = extractDateFromPeriod(periodRaw);
+
+            // 3. Extract Metrics (IPI)
+            const metrics = {
+                ipiMatriz: summaryA.totalIPI || 0,
+                ipiFilial: summaryB.totalIPI || 0
+            };
+
+            // 4. Call Service with Metrics
+            const result = await processSalesImport(itemsToSave, fileDate, override, metrics);
+
+            if (result.success) {
+                alert("Dados salvos com sucesso!");
+                setShowPreviewModal(false);
+                setShowConfirmModal(null);
+            } else {
+                // Handle Validation Errors
+                if (result.error && (result.error.includes('DATA_RETROATIVA') || result.error.includes('VALOR_NEGATIVO'))) {
+                    // Show Confirmation Modal
+                    setForceSave(true); // Prepare for forced save
+                    setShowConfirmModal({
+                        message: result.error,
+                        isError: false // It's a warning requiring confirmation
+                    });
+                } else {
+                    alert("Erro ao salvar: " + result.error);
+                }
+            }
+
+        } catch (error: any) {
+            alert("Erro inesperado: " + (error.message || error));
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     // Fetch System Products for Cross-Referencing
     const { data: systemProducts = [] } = useProducts();
-    
+
     // Divergence Alert State
     const [divergenceAlert, setDivergenceAlert] = useState<string | null>(null);
 
@@ -88,8 +177,8 @@ const LegacyImportPage: React.FC = () => {
         }));
     };
 
-    const defaultSummary: ReportSummary = { 
-        totalQty: 0, totalValue: 0, totalIPI: 0, fileName: '', fileSize: '', period: '', rawPeriod: '', identity: '' 
+    const defaultSummary: ReportSummary = {
+        totalQty: 0, totalValue: 0, totalIPI: 0, fileName: '', fileSize: '', period: '', rawPeriod: '', identity: ''
     };
 
     const [reportA, setReportA] = useState<ReportItem[]>(() => {
@@ -98,7 +187,7 @@ const LegacyImportPage: React.FC = () => {
             return saved ? sanitizeReportItems(JSON.parse(saved)) : [];
         } catch (e) { return []; }
     });
-    
+
     const [summaryA, setSummaryA] = useState<ReportSummary>(() => {
         try {
             const saved = localStorage.getItem('pplast_import_summaryA');
@@ -113,7 +202,7 @@ const LegacyImportPage: React.FC = () => {
             return saved ? sanitizeReportItems(JSON.parse(saved)) : [];
         } catch (e) { return []; }
     });
-    
+
     const [summaryB, setSummaryB] = useState<ReportSummary>(() => {
         try {
             const saved = localStorage.getItem('pplast_import_summaryB');
@@ -136,7 +225,7 @@ const LegacyImportPage: React.FC = () => {
         line: '', // Added Line filter
         origin: ''
     });
-    
+
     // Interactive Category Filter
     const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<'LEVE' | 'ULTRA' | 'NOBRE' | null>(null);
 
@@ -150,7 +239,7 @@ const LegacyImportPage: React.FC = () => {
     useEffect(() => {
         const rawA = summaryA?.rawPeriod;
         const rawB = summaryB?.rawPeriod;
-        
+
         if (rawA && rawB) {
             if (rawA !== rawB) {
                 setDivergenceAlert(`Atenção: As datas dos relatórios não conferem!\n\nMatriz: ${summaryA.period}\nFilial: ${summaryB.period}`);
@@ -183,7 +272,7 @@ const LegacyImportPage: React.FC = () => {
                 valFilial: 0,
                 valTotal: Number(item.totalValue || 0),
                 splitString: '',
-                category: String(item.LINHA || ''), 
+                category: String(item.LINHA || ''),
                 isCellRed: false,
                 isRowRed: false
             });
@@ -202,7 +291,7 @@ const LegacyImportPage: React.FC = () => {
                 existing.qtyTotal += Number(item.qtyValue || 0);
                 existing.valFilial = Number(item.totalValue || 0);
                 existing.valTotal += Number(item.totalValue || 0);
-                
+
                 // Priority to Matriz Line, else Filial
                 if (!existing.line && item.LINHA) {
                     existing.line = String(item.LINHA);
@@ -231,7 +320,7 @@ const LegacyImportPage: React.FC = () => {
 
         // 3. Post-Process for Split Categories & Rules
         const items = Array.from(map.values());
-        
+
         items.forEach(item => {
             // -- Percentage Split (Based on Monetary VALUE) --
             const totalVal = item.valMatriz + item.valFilial;
@@ -242,9 +331,9 @@ const LegacyImportPage: React.FC = () => {
                 pctMatriz = Math.round((item.valMatriz / totalVal) * 100);
                 pctFilial = 100 - pctMatriz;
             } else if (item.valMatriz === 0 && item.valFilial === 0) {
-                if(item.qtyMatriz > 0 && item.qtyFilial > 0) { pctMatriz=50; pctFilial=50; }
-                else if (item.qtyMatriz > 0) { pctMatriz=100; pctFilial=0; }
-                else { pctMatriz=0; pctFilial=100; }
+                if (item.qtyMatriz > 0 && item.qtyFilial > 0) { pctMatriz = 50; pctFilial = 50; }
+                else if (item.qtyMatriz > 0) { pctMatriz = 100; pctFilial = 0; }
+                else { pctMatriz = 0; pctFilial = 100; }
             }
 
             // Normalize Category
@@ -260,14 +349,14 @@ const LegacyImportPage: React.FC = () => {
             // -- Highlighting Rules --
             item.isCellRed = false;
             item.isRowRed = false;
-            
+
             // Rule 1: Row RED if Quantities are different (BUT IGNORE IF NOBRE)
             if (item.qtyMatriz !== item.qtyFilial) {
                 if (normCat !== 'NOBRE') {
                     item.isRowRed = true;
                 }
-            } 
-            
+            }
+
             // Rule 2: If Quantities match (or it is Nobre), check Proportions for Cell Highlight
             if (!item.isRowRed) {
                 if (normCat === 'LEVE') {
@@ -287,16 +376,16 @@ const LegacyImportPage: React.FC = () => {
 
         (consolidatedData || []).forEach(item => {
             const key = item.reference;
-            if (!key) return; 
-            
+            if (!key) return;
+
             if (!map.has(key)) {
                 // --- CROSS-REFERENCE LOGIC ---
                 const sysMatch = systemProducts.find(p => p.produto === item.reference);
                 const sysCode = sysMatch ? sysMatch.codigo.toString() : null;
-                
+
                 map.set(key, {
                     reference: item.reference,
-                    nobreId: sysCode || '-', 
+                    nobreId: sysCode || '-',
                     qtyMatriz: 0,
                     valMatriz: 0,
                     qtyFilial: 0,
@@ -306,18 +395,18 @@ const LegacyImportPage: React.FC = () => {
                     isSystemCode: !!sysCode
                 });
             }
-            
+
             const prod = map.get(key)!;
-            
+
             prod.qtyMatriz += item.qtyMatriz;
             prod.qtyFilial += item.qtyFilial;
-            
+
             prod.valMatriz += item.valMatriz;
             prod.valFilial += item.valFilial;
             prod.valTotal += (item.valMatriz + item.valFilial);
-            
+
             const normCat = item.category ? item.category.toUpperCase().trim() : '';
-            
+
             if (normCat === 'NOBRE') {
                 prod.qtyTotal += (item.qtyMatriz + item.qtyFilial);
             } else {
@@ -341,7 +430,7 @@ const LegacyImportPage: React.FC = () => {
     const consolidatedSummary = useMemo(() => {
         // NEW LOGIC: Total Qty = (Total Filial Qty) + (Matriz Qty ONLY if Line is NOBRE)
         const totalFilialQty = (reportB || []).reduce((acc, item) => acc + (Number(item?.qtyValue) || 0), 0);
-        
+
         const totalMatrizNobreQty = (reportA || []).reduce((acc, item) => {
             const line = item?.LINHA ? String(item.LINHA).toUpperCase().trim() : '';
             const isNobre = line === 'NOBRE';
@@ -352,7 +441,7 @@ const LegacyImportPage: React.FC = () => {
 
         const totalValue = (consolidatedData || []).reduce((acc, item) => acc + item.valTotal, 0);
         const totalIPI = (summaryA?.totalIPI || 0) + (summaryB?.totalIPI || 0);
-        
+
         return { totalQty, totalValue, totalIPI, count: (consolidatedData || []).length };
     }, [consolidatedData, reportA, reportB, summaryA, summaryB]);
 
@@ -361,7 +450,7 @@ const LegacyImportPage: React.FC = () => {
     const parseReportFile = (file: File, targetReport: 'A' | 'B') => {
         setIsParsing(true);
         const reader = new FileReader();
-        
+
         reader.onload = (evt) => {
             let text = evt.target?.result as string;
             if (!text) { setIsParsing(false); return; }
@@ -370,7 +459,7 @@ const LegacyImportPage: React.FC = () => {
 
             const matrizIdent = /MOVEIS\s+PERARO/i;
             const filialIdent = /-\*-\s*SISTEMA\s*-\*-/i;
-            
+
             let detectedIdentity = undefined;
 
             if (matrizIdent.test(text)) detectedIdentity = "MOVEIS PERARO";
@@ -387,7 +476,7 @@ const LegacyImportPage: React.FC = () => {
             const periodRegex = /Per.*?odo\s+.*?(\d{2}\/\d{2}\/\d{4})\s+a\s+(\d{2}\/\d{2}\/\d{4})/i;
             const headerLines = text.split(/\r?\n/).slice(0, 20).join('\n');
             const periodMatch = headerLines.match(periodRegex);
-            
+
             let periodDisplay = 'Não identificado';
             let periodRaw = '';
 
@@ -408,20 +497,20 @@ const LegacyImportPage: React.FC = () => {
                 const match = line.match(itemRegex);
                 if (match) {
                     const id = match[1];
-                    const rawDesc = match[2].trim(); 
-                    const ref = match[3]; 
+                    const rawDesc = match[2].trim();
+                    const ref = match[3];
                     const qtyStr = match[5];
                     const totalStr = match[6];
 
                     const descParts = rawDesc.split(/\s+/);
                     const lastWord = descParts.length > 0 ? descParts[descParts.length - 1] : '';
-                    const extractedLine = lastWord.trim(); 
+                    const extractedLine = lastWord.trim();
 
                     const qty = parseBRNumber(qtyStr);
                     const total = parseBRNumber(totalStr);
                     accQty += qty;
                     accValue += total;
-                    
+
                     data.push({
                         _id: index,
                         'ID': id,
@@ -451,7 +540,7 @@ const LegacyImportPage: React.FC = () => {
                 identity: detectedIdentity
             };
 
-            if (targetReport === 'A') { setReportA(data); setSummaryA(newSummary); } 
+            if (targetReport === 'A') { setReportA(data); setSummaryA(newSummary); }
             else { setReportB(data); setSummaryB(newSummary); }
             setIsParsing(false);
         };
@@ -478,7 +567,7 @@ const LegacyImportPage: React.FC = () => {
 
     const handleCategoryClick = (category: 'LEVE' | 'ULTRA' | 'NOBRE') => {
         if (selectedCategoryFilter === category) {
-            setSelectedCategoryFilter(null); 
+            setSelectedCategoryFilter(null);
         } else {
             setSelectedCategoryFilter(category);
         }
@@ -521,6 +610,28 @@ const LegacyImportPage: React.FC = () => {
     const filteredReport = filterData(currentReport);
     const filteredConsolidated = filterConsolidated(consolidatedData);
 
+    // Optimization for Preview Modal: Map Reference -> Consolidated ID
+    const referenceToConsolidatedIdMap = useMemo(() => {
+        const map = new Map<string, string>();
+
+        // 1. Populate from Consolidated Data (NOBRE candidates)
+        consolidatedData.forEach(item => {
+            if (item.category === 'NOBRE') {
+                map.set(item.reference, item.id);
+            }
+        });
+
+        // 2. Override with System Products (Priority)
+        systemProducts.forEach(p => {
+            // Check for valid product name and ensure it matches the reference style
+            if (p.produto) {
+                map.set(p.produto, p.codigo.toString());
+            }
+        });
+
+        return map;
+    }, [consolidatedData, systemProducts]);
+
     return (
         <div className="space-y-6 pb-20 animate-in fade-in">
             {/* Header */}
@@ -556,10 +667,10 @@ const LegacyImportPage: React.FC = () => {
 
             {/* Main Card */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-h-[600px] flex flex-col">
-                
+
                 {/* Tabs */}
                 <div className="flex border-b border-slate-200">
-                    <button onClick={() => { setActiveTab('A'); setFilters({id:'', ref:'', line:'', origin:''}); }} className={`flex-1 py-3 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTab === 'A' ? 'border-brand-600 bg-brand-50/50' : 'border-transparent hover:bg-slate-50'}`}>
+                    <button onClick={() => { setActiveTab('A'); setFilters({ id: '', ref: '', line: '', origin: '' }); }} className={`flex-1 py-3 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTab === 'A' ? 'border-brand-600 bg-brand-50/50' : 'border-transparent hover:bg-slate-50'}`}>
                         <div className={`flex items-center font-bold text-sm ${activeTab === 'A' ? 'text-brand-600' : 'text-slate-500'}`}>
                             <Building2 size={18} className="mr-2" /> MATRIZ
                             {reportA.length > 0 && <span className="ml-2 bg-brand-200 text-brand-800 text-[10px] px-2 py-0.5 rounded-full">{reportA.length}</span>}
@@ -567,7 +678,7 @@ const LegacyImportPage: React.FC = () => {
                         {summaryA?.identity && <span className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-sm animate-in zoom-in ${activeTab === 'A' ? 'text-white bg-brand-600' : 'text-slate-300 bg-slate-100'}`}>{summaryA.identity}</span>}
                     </button>
                     <div className="w-px bg-slate-200"></div>
-                    <button onClick={() => { setActiveTab('B'); setFilters({id:'', ref:'', line:'', origin:''}); }} className={`flex-1 py-3 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTab === 'B' ? 'border-purple-600 bg-purple-50/50' : 'border-transparent hover:bg-slate-50'}`}>
+                    <button onClick={() => { setActiveTab('B'); setFilters({ id: '', ref: '', line: '', origin: '' }); }} className={`flex-1 py-3 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTab === 'B' ? 'border-purple-600 bg-purple-50/50' : 'border-transparent hover:bg-slate-50'}`}>
                         <div className={`flex items-center font-bold text-sm ${activeTab === 'B' ? 'text-purple-600' : 'text-slate-500'}`}>
                             <Store size={18} className="mr-2" /> FILIAL
                             {reportB.length > 0 && <span className="ml-2 bg-purple-200 text-purple-800 text-[10px] px-2 py-0.5 rounded-full">{reportB.length}</span>}
@@ -575,7 +686,7 @@ const LegacyImportPage: React.FC = () => {
                         {summaryB?.identity && <span className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-sm animate-in zoom-in ${activeTab === 'B' ? 'text-white bg-purple-600' : 'text-slate-300 bg-slate-100'}`}>{summaryB.identity}</span>}
                     </button>
                     <div className="w-px bg-slate-200"></div>
-                    <button onClick={() => { setActiveTab('C'); setFilters({id:'', ref:'', line:'', origin:''}); }} className={`flex-1 py-3 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTab === 'C' ? 'border-blue-600 bg-blue-50/50' : 'border-transparent hover:bg-slate-50'}`}>
+                    <button onClick={() => { setActiveTab('C'); setFilters({ id: '', ref: '', line: '', origin: '' }); }} className={`flex-1 py-3 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTab === 'C' ? 'border-blue-600 bg-blue-50/50' : 'border-transparent hover:bg-slate-50'}`}>
                         <div className={`flex items-center font-bold text-sm ${activeTab === 'C' ? 'text-blue-600' : 'text-slate-500'}`}>
                             <Sigma size={18} className="mr-2" /> CONSOLIDADO
                             {consolidatedData.length > 0 && <span className="ml-2 bg-blue-200 text-blue-800 text-[10px] px-2 py-0.5 rounded-full">{consolidatedData.length}</span>}
@@ -583,7 +694,7 @@ const LegacyImportPage: React.FC = () => {
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-sm ${activeTab === 'C' ? 'text-white bg-blue-600' : 'text-slate-300 bg-slate-100'}`}>MATRIZ + FILIAL</span>
                     </button>
                     <div className="w-px bg-slate-200"></div>
-                    <button onClick={() => { setActiveTab('D'); setFilters({id:'', ref:'', line:'', origin:''}); }} className={`flex-1 py-3 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTab === 'D' ? 'border-green-600 bg-green-50/50' : 'border-transparent hover:bg-slate-50'}`}>
+                    <button onClick={() => { setActiveTab('D'); setFilters({ id: '', ref: '', line: '', origin: '' }); }} className={`flex-1 py-3 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTab === 'D' ? 'border-green-600 bg-green-50/50' : 'border-transparent hover:bg-slate-50'}`}>
                         <div className={`flex items-center font-bold text-sm ${activeTab === 'D' ? 'text-green-600' : 'text-slate-500'}`}>
                             <Package size={18} className="mr-2" /> RESUMO PRODUTOS
                         </div>
@@ -602,13 +713,13 @@ const LegacyImportPage: React.FC = () => {
                                         <span className="font-mono text-sm font-bold text-slate-700">{currentSummary.fileName}</span>
                                     </div>
                                 ) : (
-                                    <span className="text-sm text-slate-400 italic flex items-center"><FileText size={16} className="mr-2"/> Nenhum arquivo.</span>
+                                    <span className="text-sm text-slate-400 italic flex items-center"><FileText size={16} className="mr-2" /> Nenhum arquivo.</span>
                                 )}
                                 {currentSummary.period && (
                                     <>
                                         <div className="hidden md:block w-px h-8 bg-slate-300 mx-2"></div>
                                         <div className="flex flex-col">
-                                            <span className="text-[10px] font-bold uppercase text-slate-400 flex items-center"><Calendar size={10} className="mr-1"/> Período</span>
+                                            <span className="text-[10px] font-bold uppercase text-slate-400 flex items-center"><Calendar size={10} className="mr-1" /> Período</span>
                                             <span className="font-mono text-sm font-bold text-brand-700">{currentSummary.period}</span>
                                         </div>
                                     </>
@@ -624,11 +735,11 @@ const LegacyImportPage: React.FC = () => {
                                     <span className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-full animate-in fade-in">
                                         <Filter size={12} />
                                         Filtro: {selectedCategoryFilter}
-                                        <button onClick={() => setSelectedCategoryFilter(null)} className="ml-1 hover:text-red-300"><Trash2 size={12}/></button>
+                                        <button onClick={() => setSelectedCategoryFilter(null)} className="ml-1 hover:text-red-300"><Trash2 size={12} /></button>
                                     </span>
                                 )}
                                 {activeTab === 'C' && consolidatedData.length > 0 && (
-                                    <button 
+                                    <button
                                         onClick={() => setShowPreviewModal(true)}
                                         className="ml-2 flex items-center px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm transition-all"
                                     >
@@ -676,8 +787,8 @@ const LegacyImportPage: React.FC = () => {
                                                     <div className="flex flex-col gap-1">
                                                         <span>ID</span>
                                                         <div className="relative">
-                                                            <Search size={10} className="absolute left-2 top-2 text-slate-400"/>
-                                                            <input type="text" className="w-full pl-6 pr-2 py-1 text-[10px] border rounded outline-none focus:border-brand-500" placeholder="Filtrar" value={filters.id} onChange={e => setFilters({...filters, id: e.target.value})} />
+                                                            <Search size={10} className="absolute left-2 top-2 text-slate-400" />
+                                                            <input type="text" className="w-full pl-6 pr-2 py-1 text-[10px] border rounded outline-none focus:border-brand-500" placeholder="Filtrar" value={filters.id} onChange={e => setFilters({ ...filters, id: e.target.value })} />
                                                         </div>
                                                     </div>
                                                 </th>
@@ -685,8 +796,8 @@ const LegacyImportPage: React.FC = () => {
                                                     <div className="flex flex-col gap-1">
                                                         <span>Referência</span>
                                                         <div className="relative">
-                                                            <Search size={10} className="absolute left-2 top-2 text-slate-400"/>
-                                                            <input type="text" className="w-full pl-6 pr-2 py-1 text-[10px] border rounded outline-none focus:border-brand-500" placeholder="Filtrar" value={filters.ref} onChange={e => setFilters({...filters, ref: e.target.value})} />
+                                                            <Search size={10} className="absolute left-2 top-2 text-slate-400" />
+                                                            <input type="text" className="w-full pl-6 pr-2 py-1 text-[10px] border rounded outline-none focus:border-brand-500" placeholder="Filtrar" value={filters.ref} onChange={e => setFilters({ ...filters, ref: e.target.value })} />
                                                         </div>
                                                     </div>
                                                 </th>
@@ -694,8 +805,8 @@ const LegacyImportPage: React.FC = () => {
                                                     <div className="flex flex-col gap-1">
                                                         <span>Linha (Ext.)</span>
                                                         <div className="relative">
-                                                            <Search size={10} className="absolute left-2 top-2 text-slate-400"/>
-                                                            <input type="text" className="w-full pl-6 pr-2 py-1 text-[10px] border rounded outline-none focus:border-brand-500" placeholder="Filtrar" value={filters.line} onChange={e => setFilters({...filters, line: e.target.value})} />
+                                                            <Search size={10} className="absolute left-2 top-2 text-slate-400" />
+                                                            <input type="text" className="w-full pl-6 pr-2 py-1 text-[10px] border rounded outline-none focus:border-brand-500" placeholder="Filtrar" value={filters.line} onChange={e => setFilters({ ...filters, line: e.target.value })} />
                                                         </div>
                                                     </div>
                                                 </th>
@@ -738,31 +849,31 @@ const LegacyImportPage: React.FC = () => {
                                                 <th className="px-2 py-2 w-24 bg-slate-50">
                                                     <div className="flex flex-col gap-1">
                                                         <span className="text-xs">ID</span>
-                                                        <input type="text" className="w-full px-1 py-0.5 text-[10px] border rounded outline-none" placeholder="Filtrar" value={filters.id} onChange={e => setFilters({...filters, id: e.target.value})} />
+                                                        <input type="text" className="w-full px-1 py-0.5 text-[10px] border rounded outline-none" placeholder="Filtrar" value={filters.id} onChange={e => setFilters({ ...filters, id: e.target.value })} />
                                                     </div>
                                                 </th>
                                                 <th className="px-2 py-2 w-40 bg-slate-50">
                                                     <div className="flex flex-col gap-1">
                                                         <span className="text-xs">Ref.</span>
-                                                        <input type="text" className="w-full px-1 py-0.5 text-[10px] border rounded outline-none" placeholder="Filtrar" value={filters.ref} onChange={e => setFilters({...filters, ref: e.target.value})} />
+                                                        <input type="text" className="w-full px-1 py-0.5 text-[10px] border rounded outline-none" placeholder="Filtrar" value={filters.ref} onChange={e => setFilters({ ...filters, ref: e.target.value })} />
                                                     </div>
                                                 </th>
                                                 {/* INTERACTIVE HEADERS */}
-                                                <th 
+                                                <th
                                                     onClick={() => handleCategoryClick('LEVE')}
                                                     className={`px-1 py-2 text-center w-[60px] text-[10px] font-bold uppercase border-l border-slate-200 cursor-pointer transition-colors select-none ${selectedCategoryFilter === 'LEVE' ? 'bg-blue-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
                                                     title="Filtrar por LEVE"
                                                 >
                                                     LEVE
                                                 </th>
-                                                <th 
+                                                <th
                                                     onClick={() => handleCategoryClick('ULTRA')}
                                                     className={`px-1 py-2 text-center w-[60px] text-[10px] font-bold uppercase border-l border-slate-200 cursor-pointer transition-colors select-none ${selectedCategoryFilter === 'ULTRA' ? 'bg-purple-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
                                                     title="Filtrar por ULTRA"
                                                 >
                                                     ULTRA
                                                 </th>
-                                                <th 
+                                                <th
                                                     onClick={() => handleCategoryClick('NOBRE')}
                                                     className={`px-1 py-2 text-center w-[60px] text-[10px] font-bold uppercase border-l border-slate-200 cursor-pointer transition-colors select-none ${selectedCategoryFilter === 'NOBRE' ? 'bg-orange-500 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
                                                     title="Filtrar por NOBRE"
@@ -783,7 +894,7 @@ const LegacyImportPage: React.FC = () => {
                                                     <tr key={item.id} className={`transition-colors ${item.isRowRed ? 'bg-red-100 hover:bg-red-200' : 'hover:bg-slate-50'}`}>
                                                         <td className="px-2 py-2 font-mono text-slate-600 text-xs">{item.id}</td>
                                                         <td className="px-2 py-2 font-bold text-slate-800 text-xs">{item.reference}</td>
-                                                        
+
                                                         {/* LEVE */}
                                                         <td className={`px-1 py-2 text-center font-mono text-[10px] border-l border-slate-100 ${normCat === 'LEVE' ? (item.isCellRed ? 'bg-red-200 text-red-800 font-bold' : 'text-slate-700 font-medium') : 'text-slate-200'}`}>
                                                             {normCat === 'LEVE' ? item.splitString : '-'}
@@ -811,9 +922,9 @@ const LegacyImportPage: React.FC = () => {
                                                         <td className="px-2 py-2 text-right font-mono text-xs text-purple-600 border-r border-slate-100">
                                                             {item.valFilial > 0 ? item.valFilial.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '-'}
                                                         </td>
-                                                        
+
                                                         <td className="px-4 py-2 text-right font-mono font-bold text-green-700 text-xs border-l border-slate-100">
-                                                            {item.valTotal.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                                                            {item.valTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                                         </td>
                                                     </tr>
                                                 );
@@ -837,27 +948,27 @@ const LegacyImportPage: React.FC = () => {
                                                 <th className="px-2 py-3 text-center w-24 bg-slate-50">
                                                     <div className="flex flex-col gap-1">
                                                         <span>Cód. Nobre</span>
-                                                        <input type="text" className="w-full px-1 py-0.5 text-[10px] border rounded outline-none" placeholder="ID" value={filters.id} onChange={e => setFilters({...filters, id: e.target.value})} />
+                                                        <input type="text" className="w-full px-1 py-0.5 text-[10px] border rounded outline-none" placeholder="ID" value={filters.id} onChange={e => setFilters({ ...filters, id: e.target.value })} />
                                                     </div>
                                                 </th>
                                                 <th className="px-4 py-3 text-left bg-slate-50">
                                                     <div className="flex flex-col gap-1">
                                                         <span>Produto (Ref)</span>
                                                         <div className="relative w-32">
-                                                            <Search size={10} className="absolute left-2 top-2 text-slate-400"/>
-                                                            <input type="text" className="w-full pl-6 pr-2 py-1 text-[10px] border rounded outline-none focus:border-brand-500" placeholder="Filtrar" value={filters.ref} onChange={e => setFilters({...filters, ref: e.target.value})} />
+                                                            <Search size={10} className="absolute left-2 top-2 text-slate-400" />
+                                                            <input type="text" className="w-full pl-6 pr-2 py-1 text-[10px] border rounded outline-none focus:border-brand-500" placeholder="Filtrar" value={filters.ref} onChange={e => setFilters({ ...filters, ref: e.target.value })} />
                                                         </div>
                                                     </div>
                                                 </th>
-                                                
+
                                                 {/* MATRIZ GROUP */}
                                                 <th className="px-2 py-3 text-right bg-blue-50/50 border-l border-slate-200">Qtd Matriz</th>
                                                 <th className="px-2 py-3 text-right bg-blue-50/50">Valor Matriz</th>
-                                                
+
                                                 {/* FILIAL GROUP */}
                                                 <th className="px-2 py-3 text-right bg-purple-50/50 border-l border-slate-200">Qtd Filial</th>
                                                 <th className="px-2 py-3 text-right bg-purple-50/50">Valor Filial</th>
-                                                
+
                                                 {/* TOTAL GROUP */}
                                                 <th className="px-2 py-3 text-right bg-green-50/50 border-l border-slate-200">Qtd Geral</th>
                                                 <th className="px-4 py-3 text-right bg-green-50/50 font-extrabold text-green-800">TOTAL R$</th>
@@ -872,7 +983,7 @@ const LegacyImportPage: React.FC = () => {
                                                         </span>
                                                     </td>
                                                     <td className="px-4 py-3 font-bold text-slate-800">{item.reference}</td>
-                                                    
+
                                                     {/* MATRIZ */}
                                                     <td className="px-2 py-3 text-right font-mono text-xs text-blue-600 bg-blue-50/10 border-l border-slate-100">
                                                         {item.qtyMatriz.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
@@ -936,7 +1047,7 @@ const LegacyImportPage: React.FC = () => {
                             {consolidatedSummary.totalIPI > 0 && (
                                 <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg shadow-sm">
                                     <p className="text-[10px] uppercase text-orange-500 font-bold flex items-center">
-                                        <Calculator size={12} className="mr-1"/> IPI Acumulado
+                                        <Calculator size={12} className="mr-1" /> IPI Acumulado
                                     </p>
                                     <p className="text-xl font-bold text-orange-700">R$ {consolidatedSummary.totalIPI.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                                 </div>
@@ -959,7 +1070,7 @@ const LegacyImportPage: React.FC = () => {
                             {currentSummary.totalIPI > 0 && (
                                 <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg shadow-sm">
                                     <p className="text-[10px] uppercase text-orange-500 font-bold flex items-center">
-                                        <Calculator size={12} className="mr-1"/> IPI Detectado
+                                        <Calculator size={12} className="mr-1" /> IPI Detectado
                                     </p>
                                     <p className="text-xl font-bold text-orange-700">R$ {currentSummary.totalIPI.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                                 </div>
@@ -987,7 +1098,7 @@ const LegacyImportPage: React.FC = () => {
                                 <X size={24} />
                             </button>
                         </div>
-                        
+
                         <div className="flex-1 overflow-auto p-0">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200 sticky top-0 z-10 shadow-sm">
@@ -1005,9 +1116,9 @@ const LegacyImportPage: React.FC = () => {
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
                                     {consolidatedData.map((item) => {
-                                        // LOGIC TO FIND ID_CONSOLIDADO (Based on System Products)
-                                        const sysMatch = systemProducts.find(p => p.produto === item.reference);
-                                        const idConsolidado = sysMatch ? sysMatch.codigo : null;
+                                        // LOGIC TO FIND ID_CONSOLIDADO (Unified & Optimized)
+                                        // Uses the pre-calculated map
+                                        const idConsolidado = referenceToConsolidatedIdMap.get(item.reference) || null;
 
                                         return (
                                             <tr key={item.id} className="hover:bg-slate-50">
@@ -1057,8 +1168,48 @@ const LegacyImportPage: React.FC = () => {
                                 <button onClick={() => setShowPreviewModal(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg font-bold transition-colors">
                                     Fechar
                                 </button>
-                                <button disabled className="px-4 py-2 bg-slate-300 text-white rounded-lg font-bold cursor-not-allowed flex items-center">
-                                    <Database size={16} className="mr-2" /> Salvar no Banco (Em Breve)
+                                <button
+                                    onClick={() => handleSaveToDatabase(false)}
+                                    disabled={isSaving}
+                                    className={`px-4 py-2 text-white rounded-lg font-bold flex items-center transition-colors ${isSaving ? 'bg-slate-400' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                                >
+                                    {isSaving ? <Loader2 className="animate-spin mr-2" size={16} /> : <Database size={16} className="mr-2" />}
+                                    {isSaving ? 'Salvando...' : 'Salvar no Banco'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* CONFIRMATION / WARNING MODAL */}
+            {showConfirmModal && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-md animate-in zoom-in-95">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden border-2 border-orange-500">
+                        <div className="bg-orange-50 p-6 flex flex-col items-center text-center">
+                            <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-4">
+                                <AlertTriangle size={32} className="text-orange-600" />
+                            </div>
+                            <h3 className="text-xl font-bold text-orange-800 mb-2">Confirmação de Segurança</h3>
+                            <p className="text-slate-700 mb-6 font-medium">
+                                {showConfirmModal.message}
+                            </p>
+                            <p className="text-sm text-slate-500 mb-6">
+                                Deseja forçar a gravação mesmo assim? Isso irá registrar a diferença encontrada como movimentação do dia.
+                            </p>
+
+                            <div className="flex gap-3 w-full">
+                                <button
+                                    onClick={() => setShowConfirmModal(null)}
+                                    className="flex-1 px-4 py-2 border border-slate-300 text-slate-600 rounded-lg font-bold hover:bg-slate-50"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={() => handleSaveToDatabase(true)}
+                                    className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700"
+                                >
+                                    Confirmar e Salvar
                                 </button>
                             </div>
                         </div>

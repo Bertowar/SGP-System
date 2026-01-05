@@ -169,11 +169,18 @@ const EntryForm: React.FC = () => {
     const availableOps = useMemo(() => {
         if (!machineId) return [];
         return productionOrders.filter(op => {
-            if (op.status !== 'PLANNED' && op.status !== 'IN_PROGRESS') return false;
+            if (op.status !== 'PLANNED' && op.status !== 'IN_PROGRESS' && op.status !== 'CONFIRMED') return false;
             if (op.machineId && op.machineId !== machineId) return false;
             return true;
         });
     }, [productionOrders, machineId]);
+
+    // AUTO-SELECT OP: If only one OP is available for this machine, select it automatically
+    useEffect(() => {
+        if (availableOps.length === 1 && !selectedOpId) {
+            handleOpChange(availableOps[0].id);
+        }
+    }, [availableOps, selectedOpId]);
 
     const filteredCustomFields = useMemo(() => {
         return customFields.filter(f => f.key !== 'peso_produto');
@@ -209,11 +216,11 @@ const EntryForm: React.FC = () => {
     };
 
     useEffect(() => {
-        if (productCode && machineId) {
+        if (productCode && machineId && products.length > 0) {
             const isValid = filteredProducts.some(p => p.codigo.toString() === productCode.toString());
             if (!isValid && !selectedOpId) setProductCode(null);
         }
-    }, [machineId, filteredProducts, productCode, selectedOpId]);
+    }, [machineId, filteredProducts, productCode, selectedOpId, products.length]);
 
     useEffect(() => {
         if (isExtrusion) {
@@ -287,8 +294,18 @@ const EntryForm: React.FC = () => {
         setShift(entry.shift || '');
         setProductCode(entry.productCode ?? null);
         setSelectedOpId(entry.productionOrderId || '');
-        setStartTime(entry.startTime || '');
-        setEndTime(entry.endTime || '');
+        // Fix Time Format (HH:MM:SS -> HH:MM) and ensure padding (e.g. 7:00 -> 07:00)
+        const fmtTime = (t?: string) => {
+            if (!t) return '';
+            const clean = t.split(':').slice(0, 2).join(':'); // Take HH:MM
+            if (clean.length === 5) return clean; // Already HH:MM
+            if (clean.length === 4) return `0${clean}`; // H:MM -> 0H:MM
+            // Fallback for single digits or weird formats
+            const [h, m] = clean.split(':');
+            return `${h.padStart(2, '0')}:${(m || '00').padStart(2, '0')}`;
+        };
+        setStartTime(fmtTime(entry.startTime));
+        setEndTime(fmtTime(entry.endTime));
         setQtyOK(entry.qtyOK.toString());
         setQtyDefect(entry.qtyDefect.toString());
         setScrapReasonId(entry.scrapReasonId || '');
@@ -309,7 +326,14 @@ const EntryForm: React.FC = () => {
         // Load Extrusion Specifics
         if (entry.metaData?.extrusion) {
             const ext = entry.metaData.extrusion;
-            if (ext.mix) setMixItems(ext.mix);
+            if (ext.mix) {
+                const loaded = ext.mix;
+                const padded = [...loaded];
+                while (padded.length < 4) {
+                    padded.push({ type: '', subType: '', qty: '', targetPct: '' });
+                }
+                setMixItems(padded);
+            }
             if (ext.additives) {
                 const loadedAdds: any = { ...ext.additives };
                 Object.keys(loadedAdds).forEach(k => {
@@ -411,6 +435,13 @@ const EntryForm: React.FC = () => {
             const refileValue = safeParseFloat(refileQty);
             const borraValue = safeParseFloat(borraQty);
 
+            // Warn if no OP selected but OPs exist
+            if (!isDowntime && !selectedOpId && availableOps.length > 0) {
+                if (!confirm("ATENÇÃO: Nenhuma Ordem de Produção (OP) selecionada.\n\nO apontamento será salvo como AVULSO e não aparecerá nos detalhes da OP.\n\nDeseja continuar mesmo assim?")) {
+                    return;
+                }
+            }
+
             // Automatic Scrap Logic
             const theoreticalUnitWeight = prodRef?.pesoLiquido || 0;
             const totalTheoreticalWeight = theoreticalUnitWeight * boxesValue;
@@ -443,6 +474,10 @@ const EntryForm: React.FC = () => {
                         // Mas safeParseFloat retorna number.
                     }));
 
+                // Persist measuredWeight and cycleRate in metaData as backup
+                metaPayload.measuredWeight = weightValue;
+                metaPayload.cycleRate = cycleValue;
+
                 // Correção para o array mix: vamos salvar com ponto decimal nas strings, ou numeros.
                 // Vou optar por salvar NUMEROS no payload onde faz sentido, ou strings padronizadas com ponto.
                 // Para garantir compatibilidade com o que existia (que parecia ser string), vou deixar string com ponto.
@@ -466,7 +501,7 @@ const EntryForm: React.FC = () => {
                 machineId,
                 operatorId: operatorId ? Number(operatorId) : 99999,
                 shift,
-                productCode: isDowntime ? undefined : productCode || undefined,
+                productCode: isDowntime ? undefined : (productCode?.toString() || undefined),
                 startTime,
                 endTime,
                 qtyOK: isDowntime ? 0 : safeParseFloat(qtyOK),
@@ -479,7 +514,7 @@ const EntryForm: React.FC = () => {
                 measuredWeight: weightValue,
                 calculatedScrap: autoCalculatedApara,
                 metaData: metaPayload,
-                productionOrderId: !isDowntime ? selectedOpId || undefined : undefined,
+                productionOrderId: selectedOpId || undefined,
                 createdAt: editEntry?.createdAt || Date.now()
             };
 
@@ -600,8 +635,8 @@ const EntryForm: React.FC = () => {
                             </div>
                             <div className="flex-1 flex justify-center w-full md:w-auto">
                                 <div className="flex bg-slate-200 p-1 rounded-xl shadow-inner w-full max-w-lg">
-                                    <button type="button" onClick={() => setIsDowntime(false)} className={`flex-1 flex items-center justify-center py-4 px-4 rounded-lg text-lg md:text-xl font-extrabold transition-all duration-300 uppercase tracking-wider ${!isDowntime ? 'bg-green-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}><Package size={24} className="mr-2" /> PRODUÇÃO</button>
-                                    <button type="button" onClick={() => setIsDowntime(true)} className={`flex-1 flex items-center justify-center py-4 px-4 rounded-lg text-lg md:text-xl font-extrabold transition-all duration-300 uppercase tracking-wider ${isDowntime ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}><Timer size={24} className="mr-2" /> PARADAS</button>
+                                    <button type="button" onClick={() => setIsDowntime(false)} disabled={!!editEntry} className={`flex-1 flex items-center justify-center py-4 px-4 rounded-lg text-lg md:text-xl font-extrabold transition-all duration-300 uppercase tracking-wider ${!isDowntime ? 'bg-green-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'} ${editEntry ? 'opacity-50 cursor-not-allowed' : ''}`} title={editEntry ? "Não é permitido alterar o tipo na edição" : ""}><Package size={24} className="mr-2" /> PRODUÇÃO</button>
+                                    <button type="button" onClick={() => setIsDowntime(true)} disabled={!!editEntry} className={`flex-1 flex items-center justify-center py-4 px-4 rounded-lg text-lg md:text-xl font-extrabold transition-all duration-300 uppercase tracking-wider ${isDowntime ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'} ${editEntry ? 'opacity-50 cursor-not-allowed' : ''}`} title={editEntry ? "Não é permitido alterar o tipo na edição" : ""}><Timer size={24} className="mr-2" /> PARADAS</button>
                                 </div>
                             </div>
                             <button onClick={closeModal} className="absolute top-4 right-4 md:static p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"><X size={28} /></button>
@@ -618,35 +653,34 @@ const EntryForm: React.FC = () => {
                                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
                                             {/* OP ou Espaço Vazio se não houver OP */}
                                             {/* OP ou Espaço Vazio se não houver OP */}
-                                            {!isDowntime && availableOps.length > 0 && (
-                                                <div className="lg:col-span-4">
-                                                    <label className="text-[10px] uppercase font-bold text-blue-800 mb-1 flex items-center"><ClipboardList size={12} className="mr-1" /> Ordem de Produção</label>
-                                                    <select className="w-full px-2 py-2 border border-blue-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-blue-400 font-bold text-slate-700 h-9" value={selectedOpId} onChange={e => handleOpChange(e.target.value)}>
-                                                        <option value="">- Avulso -</option>{availableOps.map(op => <option key={op.id} value={op.id}>{op.id} - {op.product?.produto.substring(0, 15)}...</option>)}
-                                                    </select>
-                                                </div>
-                                            )}
+                                            {/* OP Selector - Visible always */}
+                                            <div className="lg:col-span-4">
+                                                <label className="text-[10px] uppercase font-bold text-blue-800 mb-1 flex items-center"><ClipboardList size={12} className="mr-1" /> Ordem de Produção</label>
+                                                <select className="w-full px-2 py-2 border border-blue-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-blue-400 font-bold text-slate-700 h-9" value={selectedOpId} onChange={e => handleOpChange(e.target.value)}>
+                                                    <option value="">- Avulso -</option>{availableOps.map(op => <option key={op.id} value={op.id}>{op.id} - {(op.product?.produto || 'N/D').substring(0, 15)}...</option>)}
+                                                </select>
+                                            </div>
 
                                             {/* Data */}
-                                            <div className={`${!isDowntime && availableOps.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
+                                            <div className={`${!isDowntime ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
                                                 <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Data</label>
                                                 <input type="date" className="w-full px-2 py-2 border rounded-lg h-9 font-bold text-slate-800 text-xs" value={date} onChange={e => setDate(e.target.value)} max={today} required />
                                             </div>
 
                                             {/* Turno */}
-                                            <div className={`${!isDowntime && availableOps.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
+                                            <div className={`${!isDowntime ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
                                                 <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Turno *</label>
                                                 <select className="w-full px-2 py-2 border rounded-lg h-9 bg-white text-xs font-bold" value={shift} onChange={handleShiftChange} required disabled={!machineId}><option value="">Selecione...</option>{availableShifts.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}</select>
                                             </div>
 
                                             {/* Início */}
-                                            <div className={`${!isDowntime && availableOps.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
+                                            <div className={`${!isDowntime ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
                                                 <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Início</label>
                                                 <input type="time" className="w-full px-2 py-2 border rounded-lg h-9 font-bold text-slate-800 text-xs" value={startTime} onChange={e => setStartTime(e.target.value)} required />
                                             </div>
 
                                             {/* Fim */}
-                                            <div className={`${!isDowntime && availableOps.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
+                                            <div className={`${!isDowntime ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
                                                 <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Fim</label>
                                                 <input type="time" className="w-full px-2 py-2 border rounded-lg h-9 font-bold text-slate-800 text-xs" value={endTime} onChange={e => setEndTime(e.target.value)} required />
                                             </div>
@@ -687,7 +721,7 @@ const EntryForm: React.FC = () => {
                                         <div className="flex items-center gap-2 mb-4 text-blue-800 border-b border-blue-200 pb-2"><Beaker size={18} className="text-blue-600" /> <h3 className="font-bold">Formulação & Aditivos</h3>{selectedOpId && <span className="text-[10px] bg-blue-200 text-blue-800 px-2 py-0.5 rounded ml-auto font-bold">OP VINCULADA</span>}</div>
                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                             <div className="bg-white p-4 rounded-lg border border-blue-100 shadow-sm relative flex flex-col justify-between">
-                                                <div><h4 className="text-xs font-bold text-blue-500 uppercase flex items-center mb-3"><FlaskConical size={14} className="mr-1" /> Mistura / Mix (Kg)</h4>{mixItems.map((item, idx) => (<div key={idx} className="flex gap-2 mb-2 items-center"><select className={`w-24 px-2 py-1 text-xs border rounded ${selectedOpId ? 'bg-slate-100 text-slate-500' : 'bg-slate-50'}`} value={item.type} onChange={e => handleMixItemChange(idx, 'type', e.target.value)} disabled={!!selectedOpId}><option value="">Tipo...</option><option value="FLAKE">FLAKE</option><option value="APARA">APARA</option></select><select className={`flex-1 px-2 py-1 text-xs border rounded ${selectedOpId ? 'bg-slate-100 text-slate-500' : 'bg-slate-50'}`} value={item.subType} onChange={e => handleMixItemChange(idx, 'subType', e.target.value)} disabled={!!selectedOpId}><option value="">Cor / Material...</option><option value="CRISTAL">CRISTAL</option><option value="BRANCO">BRANCO</option><option value="PRETO">PRETO</option><option value="AZUL">AZUL</option></select><input type="number" step="0.001" className="w-20 px-2 py-1 text-xs border rounded text-right font-bold focus:ring-2 focus:ring-blue-400 outline-none" placeholder="0.00" value={item.qty} onChange={e => handleMixItemChange(idx, 'qty', e.target.value)} onKeyDown={(e) => handleMixKeyDown(e, idx)} ref={el => { mixInputRefs.current[idx] = el; }} />{item.targetPct && (<span className="text-[9px] text-slate-400 font-mono ml-1 w-10">Ref: {item.targetPct}%</span>)}</div>))}</div>
+                                                <div><h4 className="text-xs font-bold text-blue-500 uppercase flex items-center mb-3"><FlaskConical size={14} className="mr-1" /> Mistura / Mix (Kg)</h4>{mixItems.map((item, idx) => (<div key={idx} className="flex gap-2 mb-2 items-center"><select className="w-24 px-2 py-1 text-xs border rounded bg-slate-50" value={item.type} onChange={e => handleMixItemChange(idx, 'type', e.target.value)}><option value="">Tipo...</option><option value="FLAKE">FLAKE</option><option value="APARA">APARA</option></select><select className="flex-1 px-2 py-1 text-xs border rounded bg-slate-50" value={item.subType} onChange={e => handleMixItemChange(idx, 'subType', e.target.value)}><option value="">Cor / Material...</option><option value="CRISTAL">CRISTAL</option><option value="BRANCO">BRANCO</option><option value="PRETO">PRETO</option><option value="AZUL">AZUL</option></select><input type="number" step="0.001" className="w-20 px-2 py-1 text-xs border rounded text-right font-bold focus:ring-2 focus:ring-blue-400 outline-none" placeholder="0.00" value={item.qty} onChange={e => handleMixItemChange(idx, 'qty', e.target.value)} onKeyDown={(e) => handleMixKeyDown(e, idx)} ref={el => { mixInputRefs.current[idx] = el; }} />{item.targetPct && (<span className="text-[9px] text-slate-400 font-mono ml-1 w-10">Ref: {item.targetPct}%</span>)}</div>))}</div>
                                                 <div className="mt-3 pt-3 border-t border-slate-100 flex justify-end items-center"><span className="text-sm font-bold text-slate-500 mr-2">Total da Mistura:</span><span className="text-lg font-bold text-blue-700 bg-blue-100 px-3 py-1 rounded-lg border border-blue-200">{totalMixWeight.toFixed(2)} Kg</span></div>
                                             </div>
                                             <div className="bg-white p-4 rounded-lg border border-blue-100 shadow-sm"><h4 className="text-xs font-bold text-blue-500 uppercase mb-3 flex items-center"><Droplet size={14} className="mr-1" /> Aditivos (Kg)</h4><div className="grid grid-cols-2 gap-3">{[{ key: 'pigmentBlack', label: 'Pigmento Preto' }, { key: 'pigmentWhite', label: 'Pigmento Branco' }, { key: 'alvejante', label: 'Alvejante' }, { key: 'clarificante', label: 'Clarificante' }].map(ad => (<div key={ad.key} className="flex flex-col"><label className="text-[10px] font-bold text-slate-500 mb-1">{ad.label}</label><input type="number" step="0.001" className={`px-2 py-1.5 border rounded text-sm outline-none transition-colors ${(additives as any)[ad.key] ? 'border-blue-400 bg-blue-50 text-blue-800 font-bold' : 'border-slate-200 bg-slate-50'}`} value={(additives as any)[ad.key]} onChange={e => setAdditives({ ...additives, [ad.key]: e.target.value })} placeholder="0.000" /></div>))}</div></div>
@@ -816,7 +850,7 @@ const EntryForm: React.FC = () => {
                                     {historyEntries.length > 0 && (
                                         <div className="mt-8 pt-6 border-t border-slate-200">
                                             <h4 className="flex items-center text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">
-                                                <Clock size={16} className="mr-2" /> Últimos Lançamentos ({date ? date.split('-').reverse().join('/') : ''})
+                                                <Clock size={16} className="mr-2" /> Últimos Lançamentos ({date ? date.split('-').reverse().join('/') : ''} - {shift || 'Todos os Turnos'})
                                             </h4>
                                             <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
                                                 <table className="w-full text-sm text-left">
@@ -832,7 +866,72 @@ const EntryForm: React.FC = () => {
                                                     <tbody className="divide-y divide-slate-100">
                                                         {historyEntries.map(entry => (
                                                             <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
-                                                                <td className="px-4 py-2 font-mono text-xs">{entry.startTime} - {entry.endTime}</td>
+                                                                <td className="px-4 py-2 font-mono text-xs">
+                                                                    <div className="flex flex-col">
+                                                                        <span className="font-bold text-slate-700">{entry.startTime} - {entry.endTime}</span>
+                                                                        {(() => {
+                                                                            if (!entry.startTime || !entry.endTime) return null;
+                                                                            // Helper to calc minutes
+                                                                            const toMin = (t: string) => {
+                                                                                if (!t) return 0;
+                                                                                const parts = t.split(':');
+                                                                                if (parts.length < 2) return 0;
+                                                                                const [h, m] = parts.map(Number);
+                                                                                return (h || 0) * 60 + (m || 0);
+                                                                            };
+                                                                            let start = toMin(entry.startTime);
+                                                                            let end = toMin(entry.endTime);
+                                                                            if (end < start) end += 1440; // overnight
+                                                                            let gross = end - start;
+
+                                                                            // Calculate Overlapping Downtimes
+                                                                            let overlap = 0;
+                                                                            if (!entry.downtimeMinutes && historyEntries) {
+                                                                                const downtimes = historyEntries.filter(d =>
+                                                                                    d.downtimeMinutes > 0 &&
+                                                                                    d.id !== entry.id && // Not self
+                                                                                    d.date === entry.date // Same day (Simplified)
+                                                                                );
+
+                                                                                downtimes.forEach(d => {
+                                                                                    let dStart = toMin(d.startTime);
+                                                                                    let dEnd = toMin(d.endTime);
+                                                                                    if (dEnd < dStart) dEnd += 1440;
+
+                                                                                    // Check Intersection
+                                                                                    const intersectionStart = Math.max(start, dStart);
+                                                                                    const intersectionEnd = Math.min(end, dEnd);
+
+                                                                                    if (intersectionEnd > intersectionStart) {
+                                                                                        overlap += (intersectionEnd - intersectionStart);
+                                                                                    }
+                                                                                });
+                                                                            }
+
+                                                                            const net = gross - overlap;
+
+                                                                            // Format
+                                                                            const formatTime = (m: number) => {
+                                                                                const h = Math.floor(m / 60);
+                                                                                const min = Math.round(m % 60);
+                                                                                return `${h}h ${min}m`;
+                                                                            };
+
+                                                                            if (entry.downtimeMinutes > 0) return <span className="text-slate-400 text-[10px]">{formatTime(gross)}</span>;
+
+                                                                            return (
+                                                                                <div className="flex flex-col text-[10px]">
+                                                                                    <span className="text-slate-500">Bruto: {formatTime(gross)}</span>
+                                                                                    {overlap > 0 && (
+                                                                                        <span className="text-blue-600 font-bold" title={`Descontado ${formatTime(overlap)} de paradas`}>
+                                                                                            Líq: {formatTime(net)}
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                            );
+                                                                        })()}
+                                                                    </div>
+                                                                </td>
                                                                 <td className="px-4 py-2">{entry.shift}</td>
                                                                 <td className="px-4 py-2">
                                                                     {entry.downtimeMinutes > 0 ? (

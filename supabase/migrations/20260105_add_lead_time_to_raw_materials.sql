@@ -1,0 +1,2 @@
+ALTER TABLE raw_materials
+ADD COLUMN IF NOT EXISTS lead_time_days INTEGER DEFAULT 0;

@@ -13,10 +13,10 @@ const ProductTargetsPage: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [filterType, setFilterType] = useState<'ALL' | 'SET' | 'UNSET'>('ALL');
     const [msg, setMsg] = useState('');
-    const [savingId, setSavingId] = useState<number | null>(null);
+    const [savingId, setSavingId] = useState<string | null>(null);
 
     // Local state to handle inputs before saving (allows empty strings for UX)
-    const [inputValues, setInputValues] = useState<Record<number, string>>({});
+    const [inputValues, setInputValues] = useState<Record<string, string>>({});
 
     useEffect(() => {
         loadData();
@@ -27,7 +27,7 @@ const ProductTargetsPage: React.FC = () => {
             const data = await fetchProducts();
             setProducts(data);
             // Initialize inputs
-            const initialInputs: Record<number, string> = {};
+            const initialInputs: Record<string, string> = {};
             data.forEach(p => {
                 initialInputs[p.codigo] = p.itemsPerHour ? p.itemsPerHour.toString() : '';
             });
@@ -39,7 +39,7 @@ const ProductTargetsPage: React.FC = () => {
         }
     };
 
-    const handleInputChange = (code: number, val: string) => {
+    const handleInputChange = (code: string, val: string) => {
         // Allows typing only numbers and empty string
         const cleanVal = val.replace(/[^0-9]/g, '');
         setInputValues(prev => ({ ...prev, [code]: cleanVal }));
@@ -145,8 +145,8 @@ const ProductTargetsPage: React.FC = () => {
                                 key={tab.id}
                                 onClick={() => setFilterType(tab.id as any)}
                                 className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${filterType === tab.id
-                                        ? 'bg-white text-slate-800 shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700'
+                                    ? 'bg-white text-slate-800 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700'
                                     }`}
                             >
                                 {tab.label}
@@ -228,10 +228,10 @@ const ProductTargetsPage: React.FC = () => {
                                                 onClick={() => saveTarget(p)}
                                                 disabled={savingId === p.codigo || !isModified}
                                                 className={`font-bold text-xs px-4 py-2 rounded-lg transition-all flex items-center justify-center ml-auto shadow-sm min-w-[100px] ${savingId === p.codigo
-                                                        ? 'bg-slate-100 text-slate-400 cursor-wait'
-                                                        : isModified
-                                                            ? 'bg-brand-600 text-white hover:bg-brand-700 hover:shadow-md transform hover:-translate-y-0.5'
-                                                            : 'bg-white border border-slate-200 text-slate-300 cursor-not-allowed'
+                                                    ? 'bg-slate-100 text-slate-400 cursor-wait'
+                                                    : isModified
+                                                        ? 'bg-brand-600 text-white hover:bg-brand-700 hover:shadow-md transform hover:-translate-y-0.5'
+                                                        : 'bg-white border border-slate-200 text-slate-300 cursor-not-allowed'
                                                     }`}
                                             >
                                                 {savingId === p.codigo ? (

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { fetchMaterials, saveMaterial, deleteMaterial, processStockTransaction, fetchInventoryTransactions, fetchMaterialTransactions, formatError, renameMaterialGroup, fetchAllBOMs, fetchProducts } from '../services/storage';
+import { fetchMaterials, saveMaterial, deleteMaterial, processStockTransaction, fetchInventoryTransactions, fetchMaterialTransactions, formatError, renameMaterialGroup, fetchAllBOMs, fetchProducts, formatCurrency } from '../services/storage';
 import { calculateKittingOptions } from '../services/kittingService';
 import { RawMaterial, MaterialCategory, InventoryTransaction } from '../types';
 import { Plus, Search, Cuboid, Save, ArrowDownCircle, ArrowUpCircle, RefreshCw, Trash2, X, Box, Zap, User, Hammer, Loader2, AlertCircle, ArrowRight, Minus, History, FileText, DollarSign, BarChart3, Filter, Cpu, Layers, ChevronRight, ArrowLeft, LayoutGrid, List as ListIcon, Edit, Undo2, Info, CheckCircle2, Tag } from 'lucide-react';
@@ -12,13 +12,15 @@ import { useAuth } from '../contexts/AuthContext';
 // Robust number parser for PT-BR input
 const parseInputNumber = (input: string): number => {
     if (!input) return 0;
-    let clean = input.toString().replace(/[^0-9,.]/g, '');
-    if (clean.includes(',')) {
-        if (clean.indexOf('.') < clean.indexOf(',')) {
-            clean = clean.replace(/\./g, '');
-        }
-        clean = clean.replace(',', '.');
-    }
+    // PT-BR Strict Parsing: 
+    // 1.234.567,89 -> 1234567.89
+    // 1.234 -> 1234
+    // 1,5 -> 1.5
+    let clean = input.toString();
+    // Simply remove all dots (thousands separators)
+    clean = clean.replace(/\./g, '');
+    // Replace comma with dot (decimal separator)
+    clean = clean.replace(',', '.');
     return Number(clean);
 };
 
@@ -219,6 +221,7 @@ const InventoryPage: React.FC = () => {
             const cost = parseInputNumber(editingMat.unitCost.toString());
             const min = parseInputNumber(editingMat.minStock.toString());
             const current = parseInputNumber(editingMat.currentStock.toString());
+            const lead = parseInputNumber(editingMat.leadTime?.toString() || '0'); // NEW
 
             if (isNaN(cost) || isNaN(min) || isNaN(current)) throw new Error("Valores numéricos inválidos");
 
@@ -230,6 +233,7 @@ const InventoryPage: React.FC = () => {
                 unitCost: cost,
                 minStock: min,
                 currentStock: current,
+                leadTime: lead, // NEW
                 group: finalGroup
             }, user?.organizationId);
             setModalOpen(false);
@@ -337,7 +341,7 @@ const InventoryPage: React.FC = () => {
     const openNew = () => {
         // Pre-fill group if inside a group view
         const defaultGroup = selectedGroup && selectedGroup !== 'Diversos' ? selectedGroup : 'Diversos';
-        setEditingMat({ id: '', code: '', name: '', unit: 'kg', currentStock: 0, minStock: 100, unitCost: 0, category: 'raw_material', group: defaultGroup });
+        setEditingMat({ id: '', code: '', name: '', unit: 'kg', currentStock: 0, minStock: 100, unitCost: 0, category: 'raw_material', group: defaultGroup, leadTime: 0 });
         setGroupMode('SELECT'); // Reset to selection mode
         setCategoryMode('SELECT');
         setModalOpen(true);
@@ -610,7 +614,7 @@ const InventoryPage: React.FC = () => {
                                             <div className="flex justify-between items-center bg-white p-2 rounded border border-slate-200 shadow-sm">
                                                 <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Total em Estoque</p>
                                                 <p className="text-lg font-bold text-slate-800">
-                                                    {group.totalStock.toLocaleString('pt-BR')}
+                                                    {group.totalStock.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
                                                     <span className="text-[10px] font-normal text-slate-400 ml-1">
                                                         {Array.from(group.units).join('/')}
                                                     </span>
@@ -619,7 +623,7 @@ const InventoryPage: React.FC = () => {
                                             <div className="text-right mt-1">
                                                 <span className="text-[10px] text-slate-400 font-bold uppercase mr-2">Valor Estimado</span>
                                                 <span className="text-sm font-bold text-brand-700 bg-brand-50 px-2 py-0.5 rounded">
-                                                    R$ {group.totalValue.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                                                    R$ {group.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </span>
                                             </div>
                                         </div>
@@ -673,17 +677,18 @@ const InventoryPage: React.FC = () => {
                                 <table className="w-full text-sm text-left">
                                     <thead className="bg-white text-slate-600 font-semibold border-b">
                                         <tr>
-                                            <th className="px-6 py-4">Item (Filho)</th>
-                                            <th className="px-6 py-4">Categoria</th>
-                                            <th className="px-6 py-4 text-right">Estoque</th>
-                                            <th className="px-6 py-4 text-right">Custo Un.</th>
-                                            <th className="px-6 py-4 text-center">Ações</th>
+                                            <th className="px-3 py-4">Item (Filho)</th>
+                                            <th className="px-3 py-4">Categoria</th>
+                                            <th className="px-3 py-4 text-right">Estoque</th>
+                                            <th className="px-3 py-4 text-right">Custo Un.</th>
+                                            <th className="px-3 py-4 text-right">Valor Total</th>
+                                            <th className="px-3 py-4 text-center">Ações</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-50">
                                         {currentGroupItems.map(mat => (
                                             <tr key={mat.id} className="hover:bg-slate-50 group transition-colors">
-                                                <td className="px-6 py-4">
+                                                <td className="px-3 py-4">
                                                     <div className="flex items-center">
                                                         <div className={`w-2 h-2 rounded-full mr-3 ${mat.currentStock <= mat.minStock ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`}></div>
                                                         <div>
@@ -692,22 +697,25 @@ const InventoryPage: React.FC = () => {
                                                         </div>
                                                     </div>
                                                 </td>
-                                                <td className="px-6 py-4">
+                                                <td className="px-3 py-4">
                                                     <div className="flex items-center text-slate-500 text-xs">
                                                         {getCategoryIcon(mat.category)}
                                                         <span className="ml-2 capitalize">{getCategoryLabel(mat.category)}</span>
                                                     </div>
                                                 </td>
-                                                <td className="px-6 py-4 text-right">
+                                                <td className="px-3 py-4 text-right">
                                                     <div className={`font-bold ${mat.currentStock <= mat.minStock ? 'text-red-600' : 'text-slate-700'}`}>
-                                                        {mat.currentStock.toLocaleString('pt-BR')} <span className="text-xs font-normal text-slate-400">{mat.unit}</span>
+                                                        {mat.currentStock.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} <span className="text-xs font-normal text-slate-400">{mat.unit}</span>
                                                     </div>
                                                     <div className="text-[10px] text-slate-400">Min: {mat.minStock}</div>
                                                 </td>
-                                                <td className="px-6 py-4 text-right font-mono text-slate-600">
-                                                    R$ {mat.unitCost.toFixed(2)}
+                                                <td className="px-3 py-4 text-right font-mono text-slate-600">
+                                                    R$ {mat.unitCost.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
-                                                <td className="px-6 py-4 text-center">
+                                                <td className="px-3 py-4 text-right font-bold text-slate-800 bg-slate-50/50">
+                                                    {formatCurrency(mat.currentStock * mat.unitCost)}
+                                                </td>
+                                                <td className="px-3 py-4 text-center">
                                                     <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                         <button
                                                             onClick={() => openHistory(mat)}
@@ -915,6 +923,11 @@ const InventoryPage: React.FC = () => {
                                     <div className="md:col-span-3">
                                         <Input label="Estoque Mínimo" type="text" value={editingMat.minStock} onChange={e => setEditingMat({ ...editingMat, minStock: e.target.value as any })} placeholder="0.00" />
                                     </div>
+
+                                    {/* Lead Time (NEW) */}
+                                    <div className="md:col-span-3">
+                                        <Input label="Lead Time (Dias)" type="number" value={editingMat.leadTime || ''} onChange={e => setEditingMat({ ...editingMat, leadTime: Number(e.target.value) })} placeholder="0" />
+                                    </div>
                                 </div>
 
                                 {/* 3. MANUAL STOCK ADJUSTMENT (Bottom Section) */}
@@ -996,12 +1009,16 @@ const InventoryPage: React.FC = () => {
                                     <div className="flex justify-between items-center text-center relative z-10">
                                         <div>
                                             <p className="text-[10px] uppercase text-slate-400 font-bold">Atual</p>
-                                            <p className="text-lg font-bold text-slate-700">{preview.current}</p>
+                                            <p className="text-lg font-bold text-slate-700">
+                                                {preview.current.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                                            </p>
                                         </div>
                                         <ArrowRight className="text-slate-300" />
                                         <div>
                                             <p className="text-[10px] uppercase text-slate-400 font-bold">Novo Saldo</p>
-                                            <p className={`text-lg font-bold ${preview.future < 0 ? 'text-red-600' : 'text-brand-700'}`}>{preview.future}</p>
+                                            <p className={`text-lg font-bold ${preview.future < 0 ? 'text-red-600' : 'text-brand-700'}`}>
+                                                {preview.future.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                                            </p>
                                         </div>
                                     </div>
                                     {isBalanceInsufficient && (
@@ -1023,7 +1040,7 @@ const InventoryPage: React.FC = () => {
                                 <button type="button" onClick={() => setTrxModalOpen(false)} className="px-4 py-2 border rounded-lg hover:bg-slate-50 text-sm font-medium">Cancelar</button>
                                 <button
                                     type="submit"
-                                    disabled={isTrxSubmitting || isBalanceInsufficient}
+                                    disabled={isTrxSubmitting || !!isBalanceInsufficient}
                                     className={`px-6 py-2 text-white rounded-lg font-bold flex items-center transition-all shadow-md ${isBalanceInsufficient ? 'bg-slate-300 cursor-not-allowed' :
                                         trxType === 'IN' ? 'bg-green-600 hover:bg-green-700' :
                                             trxType === 'OUT' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'

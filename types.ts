@@ -15,6 +15,7 @@ export interface Product {
 
   currentStock?: number; // NEW: Estoque Atual do Produto Acabado
   productTypeId?: string; // NEW: FK for dynamic type
+  extrusionMix?: { type: string, subType: string, qty: string }[]; // NEW: Receita Padrão
 }
 
 export interface ProductTypeDefinition {
@@ -25,7 +26,7 @@ export interface ProductTypeDefinition {
 
 // NEW: Interface para a View Materializada de Custos
 export interface ProductCostSummary {
-  productCode: number;
+  productCode: string;
   productName: string;
   sellingPrice: number;
   materialCost: number;
@@ -68,6 +69,8 @@ export interface Machine {
   productionCapacity?: number; // NEW: Capacidade Nominal
   capacity_unit?: string; // NEW: kg/h, un/h, etc
   machine_value?: number; // NEW: Valor do Patrimônio
+  activity?: string; // NEW: Função desempenhada (Ex: Extrusar)
+  organizationId?: string;
 }
 
 export interface MachineStatus {
@@ -144,7 +147,7 @@ export interface ProductionEntry {
 
 // --- NEW: PRODUCTION PLANNING (PCP) ---
 
-export type ProductionOrderStatus = 'PLANNED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+export type ProductionOrderStatus = 'PLANNED' | 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 export type ProductionOrderPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
 export interface ProductionOrder {
@@ -161,6 +164,49 @@ export interface ProductionOrder {
   createdAt: string;
   product?: Product; // Join
   metaData?: Record<string, any>; // NEW: To store specific mixes/recipes
+
+  // Phase 2 Fields
+  bomId?: string;
+  routeId?: string;
+  salesOrderId?: string;
+  version?: number;
+  parentOrderId?: string; // Recursive Parent OP
+}
+
+export type ReservationStatus = 'PENDING' | 'CONSUMED' | 'RELEASED';
+
+export interface MaterialReservation {
+  id: string;
+  organizationId: string;
+  productionOrderId: string;
+  materialId: string;
+  quantity: number;
+  status: ReservationStatus;
+  material?: RawMaterial; // Join
+}
+
+export type WorkOrderStatus = 'PENDING' | 'READY' | 'IN_PROGRESS' | 'PAUSED' | 'COMPLETED' | 'CANCELLED';
+
+export interface WorkOrder { // Maps to production_order_steps
+  id: string;
+  organizationId: string;
+  productionOrderId: string;
+  stepId: string; // Link to Route Step
+  machineId?: string;
+  operatorId?: number;
+
+  status: WorkOrderStatus;
+
+  qtyPlanned: number;
+  qtyProduced: number;
+  qtyRejected: number;
+
+  startTime?: string;
+  endTime?: string;
+
+  step?: RouteStep; // Join
+  machine?: Machine; // Join
+  operator?: Operator; // Join
 }
 
 export interface DashboardMetrics {
@@ -212,6 +258,9 @@ export interface AppSettings {
   // ALARM LIMITS
   extrusionScrapLimit?: number; // %
   thermoformingScrapLimit?: number; // %
+
+  // BUSINESS RULES CONFIG
+  includeBorraInReturn?: boolean; // Se true, soma Borra no Retorno (Extrusão)
 }
 
 export interface WorkShift {
@@ -263,14 +312,39 @@ export interface RawMaterial {
   unitCost: number;
   category: MaterialCategory;
   group?: string; // NEW: Agrupamento (Ex: Aparas, Caixas, Resinas)
+  leadTime?: number; // NEW: Prazo de Entrega (Dias)
 }
 
 export interface ProductBOM {
   id: string;
-  productCode: number;
+  productCode: string;
   materialId: string;
   quantityRequired: number; // Qty per unit of product
   material?: RawMaterial; // For display
+}
+
+// NEW: Interface for BOM Structure Simulation
+export interface StructureItem {
+  id: string; // Unique key for the tree (e.g., 'prod-123')
+  type: 'PRODUCT' | 'MATERIAL' | 'OPERATION';
+  name: string;
+  code: string; // SKU or Operation Name
+  quantity: number; // Quantity required for 1 unit of Parent
+  unit: string;
+  level: number; // Hierarchical level (0 = Top)
+
+  // Costs
+  unitCost: number;
+  totalCost: number; // quantity * unitCost
+  sellingPrice?: number; // NEW: For Root Item Margin Analysis
+
+  // Planning
+  leadTime: number; // Days (Production or Purchase)
+  currentStock?: number; // Only for Materials/Products
+  stockAvailable?: boolean; // True if Stock >= Net Requirement
+
+  children?: StructureItem[];
+  parentId?: string; // To help UI
 }
 
 export interface InventoryTransaction {
@@ -336,7 +410,35 @@ export interface ShippingOrder {
 export interface ShippingItem {
   id: string;
   orderId: string;
-  productCode: number;
+  productCode: string;
   quantity: number;
+
   product?: Product;
 }
+
+// --- PRODUCTION ROUTING MODULE (NEW) ---
+
+export interface ProductRoute {
+  id: string;
+  organizationId: string;
+  productId: string;
+  version: number;
+  active: boolean;
+  description?: string;
+  createdAt?: string;
+  steps?: RouteStep[]; // Join
+}
+
+export interface RouteStep {
+  id: string;
+  organizationId: string;
+  routeId: string;
+  stepOrder: number;
+  machineGroupId?: string;
+  setupTime: number; // minutes
+  cycleTime: number; // seconds
+  minLotTransfer: number;
+  description?: string;
+}
+
+// Ensure Product has a link to its active route if needed, or query separately.

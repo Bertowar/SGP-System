@@ -153,7 +153,7 @@ const PurchasePage: React.FC = () => {
 
         // 2. Pre-fill "Add Item" form (hidden until header saved)
         setAddItemMatId(material.id);
-        const qty = material.suggestedQty > 0 ? material.suggestedQty : material.minStock;
+        const qty = (material as any).suggestedQty > 0 ? (material as any).suggestedQty : material.minStock;
         setAddItemQty(qty.toFixed(2));
         setAddItemCost(material.unitCost.toString());
 

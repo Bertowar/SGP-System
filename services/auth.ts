@@ -1,6 +1,6 @@
 
 import { supabase } from './supabaseClient';
-import { UserProfile, UserRole } from '../types';
+import { UserProfile, UserRole, Organization } from '../types';
 
 export const signIn = async (email: string, password: string) => {
   const { data, error } = await supabase.auth.signInWithPassword({
@@ -71,4 +71,19 @@ export const getCurrentOrgId = async (): Promise<string | null> => {
   // Fallback to profile fetch
   const profile = await getUserProfile(session.user.id);
   return profile?.organizationId || null;
+};
+
+export const switchOrganization = async (targetOrgId: string): Promise<void> => {
+  const { error } = await supabase.rpc('switch_organization', { target_org_id: targetOrgId });
+  if (error) throw error;
+};
+
+export const getAllOrganizations = async (): Promise<Organization[]> => {
+  const { data, error } = await supabase
+    .from('organizations')
+    .select('*')
+    .order('name');
+
+  if (error) throw error;
+  return data as Organization[];
 };

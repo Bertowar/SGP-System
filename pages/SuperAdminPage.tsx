@@ -4,7 +4,7 @@ import { createTenant, updateTenant } from '../services/saasService';
 import { useAuth } from '../contexts/AuthContext';
 import { Building, Plus, ShieldAlert, Loader2, CheckCircle, AlertOctagon, ArrowRight, Pencil, X } from 'lucide-react';
 
-export const SuperAdminPage: React.FC = () => {
+const SuperAdminPage: React.FC = () => {
     const { user, refreshProfile } = useAuth();
     const [organizations, setOrganizations] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -361,3 +361,5 @@ export const SuperAdminPage: React.FC = () => {
         </div>
     );
 };
+
+export default SuperAdminPage;

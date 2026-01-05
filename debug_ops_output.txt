@@ -1,0 +1,3 @@
+--- OP LIST ---
+ID: OP-2026-0005 | Machine: 'TF-01' | Status: 'CONFIRMED' | Prod: 9008
+ID: OP-2026-0006 | Machine: 'EXT-02' | Status: 'IN_PROGRESS' | Prod: 9655

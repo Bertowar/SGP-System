@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
-    fetchEntriesByDate, deleteEntry, fetchProducts, fetchOperators, fetchDowntimeTypes, fetchMachines, fetchSectors, formatError
+    fetchEntriesByDate, deleteEntry, fetchProducts, fetchOperators, fetchDowntimeTypes, fetchMachines, fetchSectors, fetchSettings, formatError, formatNumber
 } from '../services/storage';
-import { ProductionEntry, Product, Operator, DowntimeType, Machine, Sector } from '../types';
+import { ProductionEntry, Product, Operator, DowntimeType, Machine, Sector, AppSettings } from '../types';
 import { Trash2, Edit, Calendar, Loader2, AlertCircle, X, Eye, Clock, Cpu, Users, Package, Timer, Bookmark, Filter, XCircle } from 'lucide-react';
 
 // --- Helpers ---
@@ -131,7 +131,7 @@ const DetailsModal: React.FC<DetailsModalProps> = ({ isOpen, onClose, group, pro
                                 return (
                                     <tr key={e.id} className="hover:bg-slate-50">
                                         <td className="px-6 py-3 font-mono text-slate-600">
-                                            {e.startTime} - {e.endTime}
+                                            {e.startTime ? e.startTime.substring(0, 5) : '--:--'} - {e.endTime ? e.endTime.substring(0, 5) : '--:--'}
                                         </td>
                                         <td className="px-6 py-3">
                                             {isDraft && (
@@ -164,8 +164,8 @@ const DetailsModal: React.FC<DetailsModalProps> = ({ isOpen, onClose, group, pro
                                                 <span className="font-bold text-orange-700">{e.downtimeMinutes} min</span>
                                             ) : (
                                                 <div className="flex flex-col items-center">
-                                                    <span className="text-xs font-bold text-green-700">OK: {e.qtyOK}</span>
-                                                    {e.qtyDefect > 0 && <span className="text-xs font-bold text-red-600">Ref: {e.qtyDefect}</span>}
+                                                    <span className="text-xs font-bold text-green-700">OK: {formatNumber(e.qtyOK, 0)}</span>
+                                                    {e.qtyDefect > 0 && <span className="text-xs font-bold text-red-600">Ref: {formatNumber(e.qtyDefect, 0)}</span>}
                                                 </div>
                                             )}
                                         </td>
@@ -195,7 +195,10 @@ const DetailsModal: React.FC<DetailsModalProps> = ({ isOpen, onClose, group, pro
 };
 
 
+import { useAuth } from '../contexts/AuthContext';
+
 const ProductionList: React.FC = () => {
+    const { user } = useAuth(); // Hooks must be at top level
     const navigate = useNavigate();
 
     // Data Helpers
@@ -208,12 +211,20 @@ const ProductionList: React.FC = () => {
     const [downtimeTypes, setDowntimeTypes] = useState<DowntimeType[]>([]);
     const [machines, setMachines] = useState<Machine[]>([]);
     const [sectors, setSectors] = useState<Sector[]>([]);
+    const [settings, setSettings] = useState<AppSettings | null>(null);
 
     // Filter States
-    const [date, setDate] = useState(today);
-    const [selectedSector, setSelectedSector] = useState('');
-    const [selectedMachine, setSelectedMachine] = useState('');
-    const [selectedOperator, setSelectedOperator] = useState('');
+    // Filter States (Initialized from SessionStorage)
+    const [date, setDate] = useState(() => sessionStorage.getItem('prodList_date') || today);
+    const [selectedSector, setSelectedSector] = useState(() => sessionStorage.getItem('prodList_sector') || '');
+    const [selectedMachine, setSelectedMachine] = useState(() => sessionStorage.getItem('prodList_machine') || '');
+    const [selectedOperator, setSelectedOperator] = useState(() => sessionStorage.getItem('prodList_operator') || '');
+
+    // Persist Filters
+    useEffect(() => { sessionStorage.setItem('prodList_date', date); }, [date]);
+    useEffect(() => { sessionStorage.setItem('prodList_sector', selectedSector); }, [selectedSector]);
+    useEffect(() => { sessionStorage.setItem('prodList_machine', selectedMachine); }, [selectedMachine]);
+    useEffect(() => { sessionStorage.setItem('prodList_operator', selectedOperator); }, [selectedOperator]);
 
     // Grouping State
     const [groupedEntries, setGroupedEntries] = useState<GroupedEntry[]>([]);
@@ -234,7 +245,7 @@ const ProductionList: React.FC = () => {
     // Load Initial Data
     useEffect(() => {
         refreshAllData();
-    }, [date]);
+    }, [date, user?.organizationId]);
 
     // Derived filtered machine list for dropdown
     const availableMachines = useMemo(() => {
@@ -308,7 +319,13 @@ const ProductionList: React.FC = () => {
                     // Extrusion: Refile + Borra from Metadata
                     const refile = Number(entry.metaData?.extrusion?.refile || 0);
                     const borra = Number(entry.metaData?.extrusion?.borra || 0);
-                    groups[key].totalReturn += (refile + borra);
+
+                    // Business Rule: Include Borra only if configured
+                    if (settings?.includeBorraInReturn) {
+                        groups[key].totalReturn += (refile + borra);
+                    } else {
+                        groups[key].totalReturn += refile;
+                    }
                 } else {
                     // TF: Use saved calculated value directly
                     groups[key].totalReturn += entry.qtyDefect;
@@ -317,7 +334,7 @@ const ProductionList: React.FC = () => {
         });
 
         setGroupedEntries(Object.values(groups).sort((a, b) => a.machineId.localeCompare(b.machineId)));
-    }, [entries, selectedMachine, selectedOperator, selectedSector, machines]);
+    }, [entries, selectedMachine, selectedOperator, selectedSector, machines, settings]);
 
     const totals = useMemo(() => {
         return groupedEntries.reduce((acc, g) => ({
@@ -334,13 +351,14 @@ const ProductionList: React.FC = () => {
         setLoading(true);
         setErrorMessage(null);
         try {
-            const [eData, pData, oData, dtData, mData, sData] = await Promise.all([
+            const [eData, pData, oData, dtData, mData, sData, stData] = await Promise.all([
                 fetchEntriesByDate(date),
                 fetchProducts(),
                 fetchOperators(),
                 fetchDowntimeTypes(),
                 fetchMachines(),
-                fetchSectors()
+                fetchSectors(),
+                fetchSettings()
             ]);
             setEntries(eData);
             setProducts(pData);
@@ -348,6 +366,7 @@ const ProductionList: React.FC = () => {
             setDowntimeTypes(dtData);
             setMachines(mData);
             setSectors(sData);
+            setSettings(stData);
 
             // Refresh selected group if modal is open
             if (selectedGroup) {
@@ -413,6 +432,13 @@ const ProductionList: React.FC = () => {
         setSelectedSector('');
         setSelectedMachine('');
         setSelectedOperator('');
+        // Date is not cleared to empty, but user might want to reset to today?
+        // Usually 'Clear Filters' implies dropdowns. 
+        // If we wanted to reset date: setDate(today);
+
+        sessionStorage.removeItem('prodList_sector');
+        sessionStorage.removeItem('prodList_machine');
+        sessionStorage.removeItem('prodList_operator');
     };
 
     return (
@@ -572,11 +598,26 @@ const ProductionList: React.FC = () => {
                             ) : groupedEntries.map(g => (
                                 <tr key={g.key} className={`transition-colors ${g.hasDrafts ? 'bg-yellow-50 hover:bg-yellow-100' : 'hover:bg-slate-50'}`}>
                                     <td className="px-6 py-4">
-                                        <div className="flex items-center">
-                                            <Cpu size={16} className="mr-2 text-slate-400" />
-                                            <span className="font-bold text-slate-800">{g.machineId}</span>
+                                        <div className="flex flex-col">
+                                            <div className="flex items-center">
+                                                <Cpu size={16} className="mr-2 text-slate-400" />
+                                                <span className="font-bold text-slate-800">{g.machineId}</span>
+                                            </div>
+                                            {/* Show OP Link */}
+                                            {(() => {
+                                                // Find first non-null OP in group
+                                                const opId = g.entries.find(e => e.productionOrderId)?.productionOrderId;
+                                                if (!opId) return null;
+                                                return (
+                                                    <div className="flex items-center mt-0.5">
+                                                        <Link to={`/production-plan?opId=${opId}`} className="text-[10px] text-blue-600 font-mono font-bold truncate max-w-[120px] hover:underline hover:text-blue-800 transition-colors" title="Ver Ordem de Produção">
+                                                            {opId}
+                                                        </Link>
+                                                    </div>
+                                                );
+                                            })()}
                                             {g.hasDrafts && (
-                                                <span className="ml-2 px-1.5 py-0.5 bg-yellow-200 text-yellow-800 text-[10px] font-bold rounded flex items-center" title="Contém rascunhos pendentes">
+                                                <span className="mt-1 ml-6 px-1.5 py-0.5 bg-yellow-200 text-yellow-800 text-[10px] font-bold rounded flex items-center w-fit" title="Contém rascunhos pendentes">
                                                     <Bookmark size={10} className="mr-1" />
                                                     Rascunho
                                                 </span>
@@ -590,9 +631,16 @@ const ProductionList: React.FC = () => {
                                         </div>
                                     </td>
                                     <td className="px-3 py-4">
-                                        <span className="font-mono text-green-700 bg-green-50 px-2 py-1 rounded">
-                                            {formatMinutesToHours(g.totalProdMinutes)}
-                                        </span>
+                                        <div className="flex flex-col">
+                                            <span className="font-mono text-green-700 bg-green-50 px-2 py-1 rounded font-bold" title="Tempo Efetivo (Produção - Paradas)">
+                                                {formatMinutesToHours(Math.max(0, g.totalProdMinutes - g.totalStopMinutes))}
+                                            </span>
+                                            {/* DEBUG: Show Times */}
+                                            <span className="text-[10px] text-slate-500 mt-1">
+                                                {g.entries.filter(e => e.downtimeMinutes === 0).map(e => `${(e.startTime || '??:??').substring(0, 5)}-${(e.endTime || '??:??').substring(0, 5)}`).join(' / ') || 'Sem Prod'}
+                                            </span>
+                                            {g.totalStopMinutes > 0 && <span className="text-[10px] text-slate-400 mt-1 line-through" title="Tempo Bruto">{formatMinutesToHours(g.totalProdMinutes)}</span>}
+                                        </div>
                                     </td>
                                     <td className="px-3 py-4">
                                         <span className={`font-mono px-2 py-1 rounded ${g.totalStopMinutes > 0 ? 'text-orange-700 bg-orange-50' : 'text-slate-400'}`}>
@@ -600,16 +648,16 @@ const ProductionList: React.FC = () => {
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 text-center">
-                                        <span className="font-bold text-slate-800">{g.totalWeight?.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 }) || '0'}</span>
+                                        <span className="font-bold text-slate-800">{formatNumber(g.totalWeight, 2)}</span>
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         {g.totalReturn > 0 ? (
                                             <span className="inline-flex items-center px-2 py-1 rounded bg-red-100 text-red-800 text-xs font-bold border border-red-200">
-                                                {g.totalReturn.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 })}
+                                                {formatNumber(g.totalReturn, 2)}
                                             </span>
                                         ) : g.totalDefect > 0 ? (
                                             <span className="inline-flex items-center px-2 py-1 rounded bg-red-100 text-red-800 text-xs font-bold border border-red-200">
-                                                {g.totalDefect}
+                                                {formatNumber(g.totalDefect, 0)}
                                             </span>
                                         ) : (
                                             <span className="text-slate-300">-</span>
@@ -617,7 +665,7 @@ const ProductionList: React.FC = () => {
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         <div className="flex flex-col items-center">
-                                            <span className="font-bold text-slate-800">{g.totalOk}</span>
+                                            <span className="font-bold text-slate-800">{formatNumber(g.totalOk, 0)}</span>
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 text-right">
@@ -633,12 +681,12 @@ const ProductionList: React.FC = () => {
                         </tbody>
                         <tfoot className="bg-slate-50 border-t-2 border-slate-200 font-bold text-slate-800 text-sm">
                             <tr>
-                                <td colSpan={2} className="px-6 py-4 text-right text-slate-500 uppercase text-xs tracking-wider">Totalização:</td>
-                                <td className="px-3 py-4 font-mono text-green-700 bg-green-50/50">{formatMinutesToHours(totals.prod)}</td>
+                                <td colSpan={2} className="px-6 py-4 text-right text-slate-500 uppercase text-xs tracking-wider">Totalização (Liq):</td>
+                                <td className="px-3 py-4 font-mono text-green-700 bg-green-50/50">{formatMinutesToHours(Math.max(0, totals.prod - totals.stop))}</td>
                                 <td className="px-3 py-4 font-mono text-orange-700 bg-orange-50/50">{formatMinutesToHours(totals.stop)}</td>
-                                <td className="px-6 py-4 text-center text-slate-800">{totals.weight.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 })}</td>
-                                <td className="px-6 py-4 text-center text-red-600">{totals.return.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 })}</td>
-                                <td className="px-6 py-4 text-center text-slate-800">{totals.ok}</td>
+                                <td className="px-6 py-4 text-center text-slate-800">{formatNumber(totals.weight, 2)}</td>
+                                <td className="px-6 py-4 text-center text-red-600">{formatNumber(totals.return, 2)}</td>
+                                <td className="px-6 py-4 text-center text-slate-800">{formatNumber(totals.ok, 0)}</td>
                                 <td className="px-6 py-4"></td>
                             </tr>
                         </tfoot>

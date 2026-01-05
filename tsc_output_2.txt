@@ -1,0 +1,62 @@
+components/Layout.tsx(9,10): error TS2305: Module '"../services/storage"' has no exported member 'getUnreadAlertCount'.
+constants.ts(22,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(23,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(24,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(27,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(28,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(29,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(30,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(31,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(32,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(33,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(34,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(35,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(36,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(37,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(38,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(39,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(40,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(41,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(42,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(43,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(44,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(45,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(46,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(47,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(48,5): error TS2322: Type 'number' is not assignable to type 'string'.
+constants.ts(49,5): error TS2322: Type 'number' is not assignable to type 'string'.
+hooks/useQueries.ts(5,28): error TS2305: Module '"../services/storage"' has no exported member 'fetchMachineStatuses'.
+hooks/useQueries.ts(6,5): error TS2305: Module '"../services/storage"' has no exported member 'registerProductionEntry'.
+hooks/useQueries.ts(6,30): error TS2305: Module '"../services/storage"' has no exported member 'fetchDashboardStats'.
+hooks/useQueries.ts(6,51): error TS2724: '"../services/storage"' has no exported member named 'fetchProductionOrders'. Did you mean 'fetchProductionOrderDetails'?
+hooks/useQueries.ts(6,74): error TS2305: Module '"../services/storage"' has no exported member 'fetchEntriesByDate'.
+pages/AlertsPage.tsx(3,10): error TS2305: Module '"../services/storage"' has no exported member 'fetchAlerts'.
+pages/AlertsPage.tsx(3,23): error TS2305: Module '"../services/storage"' has no exported member 'markAlertAsRead'.
+pages/BOMPage.tsx(42,37): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+pages/BOMPage.tsx(123,63): error TS2345: Argument of type 'string' is not assignable to parameter of type 'SetStateAction<number>'.
+pages/BOMPage.tsx(124,101): error TS2367: This comparison appears to be unintentional because the types 'number' and 'string' have no overlap.
+pages/BOMPage.tsx(149,102): error TS2367: This comparison appears to be unintentional because the types 'string' and 'number' have no overlap.
+pages/EntryForm.tsx(13,23): error TS2305: Module '"../services/storage"' has no exported member 'fetchEntriesByDate'.
+pages/EntryForm.tsx(13,43): error TS2305: Module '"../services/storage"' has no exported member 'deleteEntry'.
+pages/EntryForm.tsx(171,33): error TS2339: Property 'filter' does not exist on type 'unknown'.
+pages/EntryForm.tsx(185,37): error TS2339: Property 'find' does not exist on type 'unknown'.
+pages/EntryForm.tsx(469,17): error TS2322: Type 'string | number' is not assignable to type 'string'.
+  Type 'number' is not assignable to type 'string'.
+pages/FastEntryPage.tsx(9,10): error TS2305: Module '"../services/storage"' has no exported member 'fetchEntriesByDate'.
+pages/FastEntryPage.tsx(9,30): error TS2305: Module '"../services/storage"' has no exported member 'deleteEntry'.
+pages/FastEntryPage.tsx(146,42): error TS2367: This comparison appears to be unintentional because the types 'string' and 'number' have no overlap.
+pages/FastEntryPage.tsx(161,9): error TS2322: Type 'number' is not assignable to type 'string'.
+pages/InventoryAuditPage.tsx(108,45): error TS2367: This comparison appears to be unintentional because the types 'number' and 'string' have no overlap.
+pages/ProductionList.tsx(5,5): error TS2305: Module '"../services/storage"' has no exported member 'fetchEntriesByDate'.
+pages/ProductionList.tsx(5,25): error TS2305: Module '"../services/storage"' has no exported member 'deleteEntry'.
+pages/ProductTargetsPage.tsx(49,21): error TS2345: Argument of type 'string' is not assignable to parameter of type 'SetStateAction<number>'.
+pages/ProductTargetsPage.tsx(54,39): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
+pages/ProductTargetsPage.tsx(213,86): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
+pages/ProductTargetsPage.tsx(229,59): error TS2367: This comparison appears to be unintentional because the types 'number' and 'string' have no overlap.
+pages/ProductTargetsPage.tsx(230,182): error TS2367: This comparison appears to be unintentional because the types 'number' and 'string' have no overlap.
+pages/ProductTargetsPage.tsx(237,50): error TS2367: This comparison appears to be unintentional because the types 'number' and 'string' have no overlap.
+pages/PurchasePage.tsx(156,30): error TS2339: Property 'suggestedQty' does not exist on type 'RawMaterial'.
+pages/PurchasePage.tsx(156,58): error TS2339: Property 'suggestedQty' does not exist on type 'RawMaterial'.
+services/inventoryService.ts(276,69): error TS2304: Cannot find name 'ProductRoute'.
+services/inventoryService.ts(318,55): error TS2304: Cannot find name 'ProductRoute'.
+services/inventoryService.ts(318,85): error TS2304: Cannot find name 'RouteStep'.

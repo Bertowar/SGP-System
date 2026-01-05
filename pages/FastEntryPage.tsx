@@ -143,7 +143,7 @@ const FastEntryPage: React.FC = () => {
     setIsSavingLocal(true);
     try {
       const shiftTimes = shifts.find(s => s.name === selectedShift);
-      const prodRef = products.find(p => p.codigo === prodCode);
+      const prodRef = products.find(p => p.codigo.toString() === prodCode.toString());
       const theoreticalUnitWeight = prodRef?.pesoLiquido || 0;
 
       let qtyOK = 0;
@@ -158,7 +158,7 @@ const FastEntryPage: React.FC = () => {
         date: date,
         shift: selectedShift,
         operatorId: Number(prodForm.operatorId),
-        productCode: prodCode,
+        productCode: prodCode.toString(),
         machineId: selectedMachine,
         startTime: shiftTimes?.startTime || '00:00',
         endTime: shiftTimes?.endTime || '00:00',
@@ -173,7 +173,7 @@ const FastEntryPage: React.FC = () => {
         metaData: { boxes: boxesValue, is_fast_entry: true }
       };
 
-      await saveEntryMutation({ entry: dbEntry, isEdit: !!editingId });
+      await saveEntryMutation({ entry: dbEntry as any, isEdit: !!editingId });
       await loadData(); // Recarrega do banco para garantir sincronia
 
       if (closeModal) {
@@ -219,7 +219,7 @@ const FastEntryPage: React.FC = () => {
         metaData: { is_fast_entry: true }
       };
 
-      await saveEntryMutation({ entry: dbEntry, isEdit: !!editingId });
+      await saveEntryMutation({ entry: dbEntry as any, isEdit: !!editingId });
       await loadData();
 
       if (closeModal) setIsStopModalOpen(false);
