@@ -535,8 +535,8 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                 </div>
             </div>
 
-            {/* SEÇÃO DA RECEITA (MIX) - Visível apenas se compatível com Extrusão ou Categoria for Extrusão */}
-            {(compMachines.some(m => machines.find(mac => mac.code === m)?.sector === 'Extrusão') || category === 'Extrusão' || category === 'Bobina') && (
+            {/* SEÇÃO DA RECEITA (MIX) - Visível apenas para Bobinas */}
+            {(productTypes.find(pt => pt.id === selectedTypeId)?.name.toLowerCase().includes('bobina')) && (
                 <div className="md:col-span-4 border border-blue-200 rounded-lg p-4 bg-blue-50 mt-2">
                     <h4 className="text-sm font-bold text-blue-800 mb-3 flex items-center">
                         <Package size={16} className="mr-2" /> Receita Padrão (Mistura/Mix)

@@ -497,7 +497,7 @@ export interface WorkOrderActivity {
   id: string;
   workOrderId: string;
   operationId: string;
-  operatorId: string;
+  operatorId: number;
   producedQty: number;
   rejectedQty: number;
   materialUsed?: Record<string, any>;

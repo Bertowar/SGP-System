@@ -9,7 +9,7 @@ import { WorkOrder, WorkOrderActivity } from '../types';
 export const recordWorkOrderActivity = async (params: {
     workOrderId: string;
     operationId: string;
-    operatorId: string;
+    operatorId: number;
     producedQty: number;
     rejectedQty: number;
     materialUsed?: Record<string, any>;

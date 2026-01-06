@@ -1,9 +1,61 @@
 
 import { supabase } from './supabaseClient';
 import { getCurrentOrgId } from './auth';
-import { ProductionOrder, Product, MaterialReservation, WorkOrder, AppAlert } from '../types';
+import { ProductionOrder, Product, MaterialReservation, WorkOrder, AppAlert, OrderStatusHistory, ProductionOrderStatus } from '../types';
 import { fetchProductRoute, calculateMRP } from './inventoryService';
 import { formatError } from './utils';
+
+/**
+ * Grava a mudança de status no histórico de auditoria.
+ */
+export const recordStatusHistory = async (orderId: string, from: string, to: string) => {
+    const orgId = await getCurrentOrgId();
+    if (!orgId) return;
+
+    try {
+        const { error } = await supabase
+            .from('order_status_history')
+            .insert([{
+                order_id: orderId,
+                previous_status: from,
+                new_status: to,
+                organization_id: orgId,
+            }]);
+
+        if (error) console.error("Erro ao gravar histórico de status:", error);
+    } catch (e) {
+        console.error("Exceção ao gravar histórico:", e);
+    }
+};
+
+/**
+ * Busca o histórico de status de uma OP.
+ */
+export const fetchStatusHistory = async (orderId: string): Promise<OrderStatusHistory[]> => {
+    const orgId = await getCurrentOrgId();
+    if (!orgId) return [];
+
+    const { data, error } = await supabase
+        .from('order_status_history')
+        .select('*')
+        .eq('order_id', orderId)
+        .eq('organization_id', orgId)
+        .order('changed_at', { ascending: false });
+
+    if (error) {
+        console.error("Erro ao buscar histórico de status:", error);
+        return [];
+    }
+
+    return (data || []).map((d: any) => ({
+        id: d.id,
+        orderId: d.order_id,
+        previousStatus: d.previous_status,
+        newStatus: d.new_status,
+        changedBy: d.changed_by,
+        changedAt: d.changed_at
+    }));
+};
 
 // DTO for Creating Production Order
 interface CreateProductionOrderDTO {
@@ -342,6 +394,20 @@ export const saveProductionOrder = async (order: Partial<ProductionOrder>): Prom
     if (order.metaData !== undefined) dbOrder.meta_data = order.metaData;
 
     if (order.id) {
+        // --- AUDIT TRAIL LOGIC ---
+        if (order.status !== undefined) {
+            // 1. Fetch current status to check if it's changing
+            const { data: currentOrder } = await supabase
+                .from('production_orders')
+                .select('status')
+                .eq('id', order.id)
+                .single();
+
+            if (currentOrder && currentOrder.status !== order.status) {
+                await recordStatusHistory(order.id, currentOrder.status, order.status);
+            }
+        }
+
         // UPDATE STRATEGY - REVISED (Code First):
         // Evidence shows DB stores Machine CODE ("EXT-01") in machine_id column.
         // But UI sends UUID.

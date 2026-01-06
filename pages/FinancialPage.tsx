@@ -183,7 +183,7 @@ const FinancialPage: React.FC = () => {
                                             </span>
                                         </td>
                                         <td className="px-4 py-3 text-center">
-                                            <button title="Página anterior" aria-label="Página anterior" title="Detalhes do Produto" aria-label="Detalhes do Produto"
+                                            <button title="Detalhes do Produto" aria-label="Detalhes do Produto"
                                                 onClick={() => setSelectedProductCode(item.productCode)}
                                                 className="text-brand-600 hover:bg-brand-50 p-1.5 rounded"
                                             >

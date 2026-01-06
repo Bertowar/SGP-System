@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { ProductionOrder, WorkOrder, MaterialReservation, Machine } from '../types';
-import { fetchProductionOrderDetails, saveProductionOrder, fetchActiveProductionOrders, fetchEntriesByProductionOrderId } from '../services/productionService';
-import { fetchMachines } from '../services/masterDataService';
+import { ProductionOrder, WorkOrder, MaterialReservation, Machine, OrderStatusHistory, Operator } from '../types';
+import { fetchProductionOrderDetails, saveProductionOrder, fetchActiveProductionOrders, fetchEntriesByProductionOrderId, fetchStatusHistory } from '../services/productionService';
+import { fetchMachines, fetchOperators } from '../services/masterDataService';
+import { recordWorkOrderActivity } from '../services/workOrderService';
 import { formatNumber } from '../services/utils';
-import { X, Calendar, Package, Clock, CheckCircle2, AlertCircle, Play, Layers, Boxes, User, ArrowRight, Activity, CheckSquare, Scale } from 'lucide-react';
+import { X, Calendar, Package, Clock, CheckCircle2, AlertCircle, Play, Layers, Boxes, User, ArrowRight, Activity, CheckSquare, Scale, History } from 'lucide-react';
 
 interface ProductionOrderDetailsModalProps {
     opId: string;
@@ -18,8 +19,12 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
     const [activeOps, setActiveOps] = useState<any[]>([]); // To store all active OPs for load calc
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [activeTab, setActiveTab] = useState<'geral' | 'roteiro' | 'materiais' | 'apontamentos'>('roteiro');
+    const [activeTab, setActiveTab] = useState<'geral' | 'roteiro' | 'materiais' | 'apontamentos' | 'historico'>('roteiro');
     const [entries, setEntries] = useState<any[]>([]);
+    const [history, setHistory] = useState<OrderStatusHistory[]>([]);
+    const [operators, setOperators] = useState<Operator[]>([]);
+    const [reportingStepId, setReportingStepId] = useState<string | null>(null);
+    const [reportForm, setReportForm] = useState({ ok: '', nok: '', operatorId: '' });
 
     // Determine context (Extrusion vs Others)
     const currentMachine = machines.find(m => m.id === op?.machineId) || machines.find(m => m.code === op?.machineId);
@@ -44,27 +49,23 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
 
     // ... (lines skipped)
 
-    {
-        !entries?.length && (
-            <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
-                <Activity className="mx-auto mb-2 opacity-50" />
-                Nenhum apontamento registrado para esta OP.
-            </div>
-        )
-    }
 
     const loadDetails = async () => {
         setLoading(true);
-        const [data, ms, active, ents] = await Promise.all([
+        const [data, ms, active, ents, hist, ops] = await Promise.all([
             fetchProductionOrderDetails(opId),
             fetchMachines(),
             fetchActiveProductionOrders(),
-            fetchEntriesByProductionOrderId(opId)
+            fetchEntriesByProductionOrderId(opId),
+            fetchStatusHistory(opId),
+            fetchOperators()
         ]);
         setOp(data);
         setMachines(ms);
         setActiveOps(active);
         setEntries(ents);
+        setHistory(hist);
+        setOperators(ops);
         setLoading(false);
     };
 
@@ -105,7 +106,6 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
             onUpdate?.();
         } catch (error) {
             console.error("Erro ao salvar máquina:", error);
-            console.error("Erro ao salvar máquina:", error);
             const targetMachine = machines.find((m: any) => m.id === newMachineId);
             const sessionOrg = machines.length > 0 ? machines[0].organizationId : 'Unknown';
             const debugInfo = `\nOP ID: ${op.id}\nOP Org: ${op.organizationId || 'N/A'}\nTarget Machine: ${targetMachine?.name} (${targetMachine?.code})\nMachine Org: ${targetMachine?.organizationId || 'N/A'}\nSession Org (Proxy): ${sessionOrg}`;
@@ -121,10 +121,41 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
         try {
             await saveProductionOrder({ id: op.id, status: newStatus as any });
             setOp({ ...op, status: newStatus });
+            // Refresh history after status change
+            const newHist = await fetchStatusHistory(opId);
+            setHistory(newHist);
             onUpdate?.();
         } catch (error) {
             console.error("Erro ao salvar status:", error);
             alert("Erro ao salvar status.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleReportProduction = async (stepId: string) => {
+        if (!reportForm.ok && !reportForm.nok) return;
+        if (!reportForm.operatorId) {
+            alert("Selecione um operador.");
+            return;
+        }
+
+        setSaving(true);
+        try {
+            await recordWorkOrderActivity({
+                workOrderId: stepId,
+                operationId: '', // Future: use actual operation ID if needed
+                operatorId: Number(reportForm.operatorId),
+                producedQty: Number(reportForm.ok) || 0,
+                rejectedQty: Number(reportForm.nok) || 0
+            });
+
+            // Refresh everything
+            await loadDetails();
+            setReportingStepId(null);
+            setReportForm({ ok: '', nok: '', operatorId: '' });
+        } catch (error: any) {
+            alert("Erro ao registrar produção: " + error.message);
         } finally {
             setSaving(false);
         }
@@ -328,6 +359,8 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
                                     className="text-xs border border-slate-300 rounded px-2 py-1 outline-none focus:border-brand-500 bg-white min-w-[140px]"
                                     value={op?.machineId || ''}
                                     onChange={(e) => handleMachineChange(e.target.value)}
+                                    title="Selecionar Máquina"
+                                    aria-label="Selecionar Máquina para produção"
                                 >
                                     <option value="">Selecione...</option>
                                     {machines.filter(m => {
@@ -378,6 +411,8 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
                                     className="text-xs border border-slate-300 rounded px-2 py-1 outline-none focus:border-brand-500 bg-white min-w-[120px]"
                                     value={op?.status || 'PLANNED'}
                                     onChange={(e) => handleStatusChange(e.target.value)}
+                                    title="Alterar Status da OP"
+                                    aria-label="Alerar status da ordem de produção"
                                 >
                                     <option value="PLANNED">PENDENTE</option>
                                     <option value="IN_PROGRESS">INICIADA</option>
@@ -414,7 +449,10 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
                             </span>
                         </div>
                         <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden mb-2">
-                            <div className="h-full bg-brand-600 rounded-full transition-all duration-1000 ease-out" style={{ width: `${progressPct}%` }}></div>
+                            <div
+                                className="h-full bg-brand-600 rounded-full transition-all duration-1000 ease-out"
+                                style={{ width: `${progressPct}%` }}
+                            ></div>
                         </div>
                         <div className="flex justify-between items-center text-xs">
                             <span className="font-bold text-slate-700 flex items-center gap-1">
@@ -426,7 +464,12 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
                     </div>
                     <div className="flex items-center gap-2">
                         {saving && <span className="text-xs font-bold text-green-600 animate-pulse flex items-center"><CheckCircle2 size={14} className="mr-1" /> Salvando...</span>}
-                        <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-500">
+                        <button
+                            onClick={onClose}
+                            className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-500"
+                            title="Fechar Modal"
+                            aria-label="Fechar detalhes da ordem de produção"
+                        >
                             <X size={24} />
                         </button>
                     </div>
@@ -451,6 +494,12 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
                         className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'apontamentos' ? 'border-brand-600 text-brand-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
                         <Activity size={16} /> Apontamentos
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('historico')}
+                        className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'historico' ? 'border-brand-600 text-brand-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                    >
+                        <History size={16} /> Histórico
                     </button>
                 </div>
 
@@ -535,6 +584,81 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
                                                             <div className="font-mono font-bold text-red-500">{formatNumber(step.qtyRejected, 0)}</div>
                                                         </div>
                                                     </div>
+
+                                                    {/* REPORTING INTERFACE */}
+                                                    <div className="mt-4 border-t border-slate-100 pt-4">
+                                                        {reportingStepId === step.id ? (
+                                                            <div className="bg-slate-50 p-4 rounded-lg border border-brand-200 animate-in slide-in-from-top-2">
+                                                                <h5 className="text-xs font-bold text-brand-700 uppercase mb-3 flex items-center gap-2">
+                                                                    <Play size={14} /> Registrar Apontamento
+                                                                </h5>
+                                                                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                                                    <div>
+                                                                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Operador</label>
+                                                                        <select
+                                                                            value={reportForm.operatorId}
+                                                                            onChange={(e) => setReportForm({ ...reportForm, operatorId: e.target.value })}
+                                                                            className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 bg-white outline-none focus:border-brand-500"
+                                                                            title="Selecionar Operador"
+                                                                            aria-label="Selecionar operador para o apontamento"
+                                                                        >
+                                                                            <option value="">Selecione...</option>
+                                                                            {operators.map(o => (
+                                                                                <option key={o.id} value={o.id}>{o.name}</option>
+                                                                            ))}
+                                                                        </select>
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Qtd OK</label>
+                                                                        <input
+                                                                            type="number"
+                                                                            value={reportForm.ok}
+                                                                            onChange={(e) => setReportForm({ ...reportForm, ok: e.target.value })}
+                                                                            placeholder="0"
+                                                                            className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 outline-none focus:border-brand-500"
+                                                                        />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Refugo</label>
+                                                                        <input
+                                                                            type="number"
+                                                                            value={reportForm.nok}
+                                                                            onChange={(e) => setReportForm({ ...reportForm, nok: e.target.value })}
+                                                                            placeholder="0"
+                                                                            className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 outline-none focus:border-brand-500"
+                                                                        />
+                                                                    </div>
+                                                                    <div className="flex items-end gap-2">
+                                                                        <button
+                                                                            onClick={() => handleReportProduction(step.id)}
+                                                                            className="flex-1 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded py-1.5 transition-colors shadow-sm"
+                                                                            title="Salvar Apontamento"
+                                                                            aria-label="Salvar registro de produção ou refugo"
+                                                                        >
+                                                                            Salvar
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => setReportingStepId(null)}
+                                                                            className="bg-slate-200 hover:bg-slate-300 text-slate-600 text-xs font-bold rounded px-2 py-1.5 transition-colors"
+                                                                            title="Cancelar"
+                                                                        >
+                                                                            Cancelar
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <button
+                                                                disabled={step.status === 'COMPLETED' || op?.status === 'CANCELLED'}
+                                                                onClick={() => setReportingStepId(step.id)}
+                                                                className={`w-full py-2 rounded-lg border-2 border-dashed font-bold text-xs transition-all flex items-center justify-center gap-2 
+                                                                    ${step.status === 'COMPLETED' ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed' :
+                                                                        'bg-brand-50 text-brand-600 border-brand-200 hover:bg-brand-100 hover:border-brand-300'}`}
+                                                            >
+                                                                <Play size={14} /> Registrar Produção / Refugo
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
                                         ))}
@@ -610,8 +734,8 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
                                                                                 </div>
                                                                                 <div className="w-full h-4 bg-slate-50 rounded-full border border-slate-200 p-0.5 relative overflow-hidden shadow-inner">
                                                                                     <div
-                                                                                        className={`h-full rounded-full transition-all duration-500 shadow-sm ${item.pct > 100 ? 'bg-red-500 shadow-red-500/50' : item.pct > 80 ? 'bg-green-500 shadow-green-500/50' : 'bg-yellow-400 shadow-yellow-400/50'}`}
-                                                                                        style={{ width: `${Math.min(100, item.pct)}%`, boxShadow: item.pct > 0 ? '0 0 8px currentColor' : 'none', color: item.pct > 100 ? '#ef4444' : item.pct > 80 ? '#22c55e' : '#facc15' }}
+                                                                                        className={`h-full rounded-full transition-all duration-500 shadow-sm ${item.pct > 100 ? 'bg-red-500' : item.pct > 80 ? 'bg-green-500' : 'bg-yellow-400'}`}
+                                                                                        style={{ width: `${Math.min(100, item.pct)}%` }}
                                                                                     ></div>
                                                                                 </div>
                                                                             </td>
@@ -711,6 +835,70 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
                                     </div>
                                 </div>
                             )}
+
+                            {/* TAB HISTORICO */}
+                            {activeTab === 'historico' && (
+                                <div className="space-y-4 animate-in fade-in">
+                                    <h3 className="text-lg font-bold text-slate-800 mb-4 px-2">Log de Atividades e Status</h3>
+                                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                                        <table className="w-full text-sm text-left">
+                                            <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100 uppercase text-[10px] tracking-wide">
+                                                <tr>
+                                                    <th className="px-6 py-4">Data/Hora</th>
+                                                    <th className="px-6 py-4">Status Anterior</th>
+                                                    <th className="px-6 py-4 text-center"><ArrowRight size={14} className="mx-auto" /></th>
+                                                    <th className="px-6 py-4">Novo Status</th>
+                                                    <th className="px-6 py-4">Responsável</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {history.length > 0 ? history.map((log) => (
+                                                    <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
+                                                        <td className="px-6 py-4 text-slate-500 font-medium">
+                                                            {new Date(log.changedAt).toLocaleString('pt-BR')}
+                                                        </td>
+                                                        <td className="px-6 py-4">
+                                                            <span className="text-[10px] font-bold px-2 py-1 rounded bg-slate-100 text-slate-500 uppercase">
+                                                                {translateStatus(log.previousStatus)}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-center text-slate-300">
+                                                            <ArrowRight size={14} className="mx-auto" />
+                                                        </td>
+                                                        <td className="px-6 py-4">
+                                                            <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase ${getStatusColor(log.newStatus)}`}>
+                                                                {translateStatus(log.newStatus)}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 flex items-center gap-2">
+                                                            <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                                                                <User size={12} />
+                                                            </div>
+                                                            <span className="text-xs font-bold text-slate-700">Sistema / {log.changedBy?.substring(0, 8) || 'Divergente'}</span>
+                                                        </td>
+                                                    </tr>
+                                                )) : (
+                                                    <tr>
+                                                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">
+                                                            Nenhuma alteração de status registrada.
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    {/* INFO BOX */}
+                                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 flex gap-3">
+                                        <AlertCircle className="text-blue-500 shrink-0" size={20} />
+                                        <div className="text-xs text-blue-700 leading-relaxed">
+                                            <b>Sobre a Rastreabilidade:</b> Todas as mudanças de estado desta Ordem de Produção são auditadas automaticamente.
+                                            Isso inclui transições iniciadas por usuários ou gatilhos do sistema (ex: conclusão automática de etapas).
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                         </>
                     )}
                 </div>

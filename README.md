@@ -6,15 +6,28 @@
 
 This contains everything you need to run your app locally.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1JUg1AOyAP_NCmQBL6xE9NCaMG5jA12WD
+View your app in AI Studio: <https://ai.studio/apps/drive/1JUg1AOyAP_NCmQBL6xE9NCaMG5jA12WD>
 
-## Run Locally
+## Novidades da Versão (Beta 1.1.1)
 
-**Prerequisites:**  Node.js
+### 🚀 State Machine de Ordens de Produção
 
+- Fluxo de status automatizado: `PENDENTE` → `PRONTO` → `EM PRODUÇÃO` → `CONCLUÍDO`.
+- Validação rigorosa de transições para garantir integridade dos dados.
+- Reserva automática de materiais ao confirmar uma OP.
 
-1. Install dependencies:
+### 📋 Rastreabilidade (Audit Trail)
+
+- **Histórico Completo**: Todas as mudanças de status são registradas com data, hora e responsável.
+- **Log de Atividades**: Registro detalhado de apontamentos de produção e refugo vinculado a operadores.
+- **Visualização em Tempo Real**: Novo log histórico integrado ao modal de detalhes da OP.
+
+## Execução Local
+
+**Pré-requisitos:** Node.js
+
+1. Instale as dependências:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Configure a `GEMINI_API_KEY` no [.env.local](.env.local)
+3. Execute o app:
    `npm run dev`

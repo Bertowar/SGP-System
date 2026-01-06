@@ -66,13 +66,15 @@ export const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
                 <button
                     onClick={toggleSidebar}
                     className="md:hidden p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
+                    title="Menu"
+                    aria-label="Menu"
                 >
                     <Menu size={24} />
                 </button>
 
                 <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-orange-50 rounded-full border border-orange-200">
                     <ShieldAlertIcon size={14} className="text-orange-500" />
-                    <span className="text-xs font-bold text-orange-700 uppercase tracking-wider">Beta 1.0</span>
+                    <span className="text-xs font-bold text-orange-700 uppercase tracking-wider">Beta 1.1.1</span>
                     <span className="text-slate-300">|</span>
                     <span className="text-xs font-bold text-orange-800 uppercase">{currentOrg?.name || 'SGP MASTER'}</span>
                 </div>
