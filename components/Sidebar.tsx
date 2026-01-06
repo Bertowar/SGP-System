@@ -81,7 +81,7 @@ export const Sidebar: React.FC<SidebarProps> = () => {
                 {/* Logo Area */}
                 <div className="h-20 w-full flex items-center justify-center mb-2">
                     <div className="text-secondary-400">
-                        <Box size={32} strokeWidth={1.5} className="text-[#0ed3cf]" />
+                        <Box size={32} strokeWidth={1.5} className="text-[#0EA5E9]" />
                     </div>
                 </div>
 

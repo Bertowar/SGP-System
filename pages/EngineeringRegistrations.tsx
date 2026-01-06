@@ -1473,9 +1473,9 @@ const EngineeringRegistrations: React.FC = () => {
                     columns={[
                         { header: 'Cód', className: 'w-[80px]', render: (p: Product) => <span className="font-mono text-xs">{p.codigo}</span> },
                         {
-                            header: 'Produto', className: 'w-[400px]', render: (p: Product) => (
+                            header: 'Produto', className: 'w-[320px]', render: (p: Product) => (
                                 <div>
-                                    <div className="font-bold text-slate-800 truncate max-w-[380px]" title={p.produto}>{p.produto}</div>
+                                    <div className="font-bold text-slate-800 truncate max-w-[300px]" title={p.produto}>{p.produto}</div>
                                     <div className="flex gap-2 mt-1">
                                         <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${p.type === 'INTERMEDIATE' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-700'}`}>
                                             {p.type === 'INTERMEDIATE' ? 'Bobina' : 'Acabado'}
@@ -1489,7 +1489,7 @@ const EngineeringRegistrations: React.FC = () => {
                         },
                         {
                             header: 'Compatibilidade', className: 'w-auto', render: (p: Product) => (
-                                <div className="flex flex-wrap gap-1 max-w-[240px]">
+                                <div className="flex flex-wrap gap-1 max-w-[200px]">
                                     {p.compatibleMachines && p.compatibleMachines.length > 0 ? (
                                         p.compatibleMachines.map(mCode => (
                                             <span key={mCode} className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-100 group">
@@ -1513,35 +1513,31 @@ const EngineeringRegistrations: React.FC = () => {
                             )
                         },
                         { header: 'Meta (Pç/h)', render: (p: Product) => p.itemsPerHour ? <span className="font-mono bg-slate-100 px-2 rounded">{p.itemsPerHour}</span> : '-' },
-                        { header: 'Peso (Kg)', render: (p: Product) => p.pesoLiquido },
+                        { header: 'Peso', render: (p: Product) => p.pesoLiquido },
                         { header: 'Custo', render: (p: Product) => `R$ ${p.custoUnit}` },
-                        {
-                            header: 'Estrutura', render: (p: Product) => (
-                                <button
-                                    onClick={() => setViewStructure(p.id || p.codigo)}
-                                    className="p-1.5 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded transition-colors"
-                                    title="Ver Estrutura / Custos"
-                                >
-                                    <Box size={16} />
-                                </button>
-                            )
-                        },
-                        {
-                            header: 'Roteiro', render: (p: Product) => (
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedProductForRoute(p);
-                                        setRouteModalOpen(true);
-                                    }}
-                                    className="p-1.5 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-md transition-colors shadow-sm"
-                                    title="Editar Roteiro de Produção"
-                                >
-                                    <Workflow size={16} />
-                                </button>
-                            )
-                        },
                     ]}
+                    customActions={(p) => (
+                        <>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setViewStructure(p.id || p.codigo); }}
+                                className="p-1.5 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded transition-colors mr-1"
+                                title="Ver Estrutura / Custos"
+                            >
+                                <Box size={16} />
+                            </button>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedProductForRoute(p);
+                                    setRouteModalOpen(true);
+                                }}
+                                className="p-1.5 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-md transition-colors shadow-sm mr-1"
+                                title="Editar Roteiro de Produção"
+                            >
+                                <Workflow size={16} />
+                            </button>
+                        </>
+                    )}
                     onDelete={(p) => openDeleteModal(p, 'produto')}
                     FormComponent={ProductForm}
                     onSaveSuccess={refreshAllData}

@@ -220,11 +220,13 @@ const ProductionList: React.FC = () => {
     const [selectedMachine, setSelectedMachine] = useState(() => sessionStorage.getItem('prodList_machine') || '');
     const [selectedOperator, setSelectedOperator] = useState(() => sessionStorage.getItem('prodList_operator') || '');
 
+
     // Persist Filters
     useEffect(() => { sessionStorage.setItem('prodList_date', date); }, [date]);
     useEffect(() => { sessionStorage.setItem('prodList_sector', selectedSector); }, [selectedSector]);
     useEffect(() => { sessionStorage.setItem('prodList_machine', selectedMachine); }, [selectedMachine]);
     useEffect(() => { sessionStorage.setItem('prodList_operator', selectedOperator); }, [selectedOperator]);
+
 
     // Grouping State
     const [groupedEntries, setGroupedEntries] = useState<GroupedEntry[]>([]);
@@ -259,6 +261,8 @@ const ProductionList: React.FC = () => {
         return operators.filter(o => !o.sector || o.sector === selectedSector);
     }, [operators, selectedSector]);
 
+
+
     // Grouping Logic (Memoized with Filters)
     useMemo(() => {
         const groups: Record<string, GroupedEntry> = {};
@@ -267,6 +271,8 @@ const ProductionList: React.FC = () => {
         const filteredEntries = entries.filter(entry => {
             if (selectedMachine && entry.machineId !== selectedMachine) return false;
             if (selectedOperator && entry.operatorId.toString() !== selectedOperator) return false;
+
+
 
             if (selectedSector) {
                 const m = machines.find(mac => mac.code === entry.machineId);
@@ -432,6 +438,7 @@ const ProductionList: React.FC = () => {
         setSelectedSector('');
         setSelectedMachine('');
         setSelectedOperator('');
+
         // Date is not cleared to empty, but user might want to reset to today?
         // Usually 'Clear Filters' implies dropdowns. 
         // If we wanted to reset date: setDate(today);
@@ -439,6 +446,7 @@ const ProductionList: React.FC = () => {
         sessionStorage.removeItem('prodList_sector');
         sessionStorage.removeItem('prodList_machine');
         sessionStorage.removeItem('prodList_operator');
+
     };
 
     return (
@@ -485,40 +493,42 @@ const ProductionList: React.FC = () => {
             )}
 
             {/* FILTER BAR */}
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col lg:flex-row gap-4 items-start lg:items-center">
+            <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex flex-nowrap gap-2 items-center overflow-x-auto">
 
                 {/* Date Picker */}
-                <div className="flex flex-col space-y-1">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Data</span>
-                    <div className="relative bg-slate-50 border border-slate-200 rounded-lg h-[40px] w-40 flex items-center overflow-hidden hover:border-brand-400 transition-colors">
+                <div className="flex items-center gap-1 shrink-0">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">Data</span>
+                    <div className="relative bg-slate-50 border border-slate-200 rounded-md h-[32px] w-36 flex items-center overflow-hidden hover:border-brand-400 transition-colors">
                         <input
                             type="date"
-                            className="w-full h-full pl-3 pr-8 outline-none text-slate-800 font-bold border-none bg-transparent text-sm"
+                            className="w-full h-full pl-2 pr-6 outline-none text-slate-800 font-bold border-none bg-transparent text-xs"
                             value={date}
                             onChange={handleDateChange}
                             max={today}
                         />
-                        <div className="absolute right-2 text-brand-600 pointer-events-none">
-                            <Calendar size={16} />
+                        <div className="absolute right-1 text-slate-400 pointer-events-none">
+                            <Calendar size={14} />
                         </div>
                     </div>
                 </div>
 
-                <div className="h-8 w-px bg-slate-200 hidden lg:block mx-2"></div>
+                <div className="h-6 w-px bg-slate-200 mx-1 shrink-0"></div>
 
-                {/* Filters Row */}
-                <div className="flex flex-wrap gap-3 flex-1">
+                {/* Filters Row - Compact */}
+                <div className="flex items-center gap-2 flex-1">
+
+
 
                     {/* Sector Filter */}
-                    <div className="flex flex-col space-y-1 w-full sm:w-auto">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Setor</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase hidden md:inline">Setor</span>
                         <select
-                            className="h-[40px] px-3 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 focus:ring-2 focus:ring-brand-500 outline-none"
+                            className="h-[32px] px-2 bg-white border border-slate-200 rounded-md text-xs font-medium text-slate-700 focus:ring-2 focus:ring-brand-500 outline-none w-[100px] md:w-auto"
                             value={selectedSector}
                             onChange={e => {
                                 setSelectedSector(e.target.value);
-                                setSelectedMachine(''); // Reset machine when sector changes
-                                setSelectedOperator(''); // Reset operator when sector changes
+                                setSelectedMachine('');
+                                setSelectedOperator('');
                             }}
                         >
                             <option value="">Todos</option>
@@ -533,10 +543,10 @@ const ProductionList: React.FC = () => {
                     </div>
 
                     {/* Machine Filter */}
-                    <div className="flex flex-col space-y-1 w-full sm:w-auto">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Máquina</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase hidden md:inline">Mq</span>
                         <select
-                            className="h-[40px] px-3 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 focus:ring-2 focus:ring-brand-500 outline-none min-w-[140px]"
+                            className="h-[32px] px-2 bg-white border border-slate-200 rounded-md text-xs font-medium text-slate-700 focus:ring-2 focus:ring-brand-500 outline-none w-[80px] md:w-[110px]"
                             value={selectedMachine}
                             onChange={e => setSelectedMachine(e.target.value)}
                         >
@@ -546,10 +556,10 @@ const ProductionList: React.FC = () => {
                     </div>
 
                     {/* Operator Filter */}
-                    <div className="flex flex-col space-y-1 w-full sm:w-auto">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Operador</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase hidden md:inline">Op</span>
                         <select
-                            className="h-[40px] px-3 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 focus:ring-2 focus:ring-brand-500 outline-none min-w-[140px]"
+                            className="h-[32px] px-2 bg-white border border-slate-200 rounded-md text-xs font-medium text-slate-700 focus:ring-2 focus:ring-brand-500 outline-none w-[80px] md:w-[110px]"
                             value={selectedOperator}
                             onChange={e => setSelectedOperator(e.target.value)}
                         >
@@ -560,20 +570,19 @@ const ProductionList: React.FC = () => {
 
                     {/* Clear Button */}
                     {(selectedSector || selectedMachine || selectedOperator) && (
-                        <div className="flex flex-col justify-end pb-[1px]">
-                            <button
-                                onClick={clearFilters}
-                                className="h-[40px] px-3 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 flex items-center font-bold text-xs transition-colors"
-                                title="Limpar Filtros"
-                            >
-                                <XCircle size={16} className="mr-1.5" /> Limpar
-                            </button>
-                        </div>
+                        <button
+                            onClick={clearFilters}
+                            className="h-[32px] px-2 bg-red-50 text-red-600 rounded-md hover:bg-red-100 flex items-center font-bold text-[10px] transition-colors ml-auto"
+                            title="Limpar Filtros"
+                        >
+                            <XCircle size={14} className="mr-1" /> Limpar
+                        </button>
                     )}
                 </div>
             </div>
 
             <div className="overflow-x-auto relative min-h-[500px]">
+
                 <div className="border rounded-lg shadow-sm overflow-hidden">
                     <table className="w-full text-left text-sm bg-white">
                         <thead className="bg-slate-50 border-b border-slate-200">

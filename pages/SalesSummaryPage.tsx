@@ -1,14 +1,17 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { fetchSalesSummary, fetchDailyMovements, fetchSalesMetrics, SalesSummaryData, DailySalesData } from '../services/salesService';
-import { Search, Loader2, Calendar, TrendingUp, TrendingDown, Store, Building2, Sigma, ArrowUpRight, BarChart3, List } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { fetchSalesSummary, fetchDailyMovements, fetchSalesMetrics, fetchAnnualSales, SalesSummaryData, DailySalesData, AnnualSalesData } from '../services/salesService';
+import { Search, Loader2, Calendar, TrendingUp, TrendingDown, Store, Building2, Sigma, ArrowUpRight, BarChart3, List, PieChart } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ComposedChart, Bar, Line } from 'recharts';
 
 const SalesSummaryPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState<SalesSummaryData[]>([]);
     const [dailyData, setDailyData] = useState<DailySalesData[]>([]);
     const [metrics, setMetrics] = useState<{ ipi_val_matriz: number, ipi_val_filial: number } | null>(null);
-    const [viewMode, setViewMode] = useState<'table' | 'chart'>('table');
+    const [viewMode, setViewMode] = useState<'table' | 'chart' | 'annual'>('table');
+
+    // Annual Comp Data
+    const [annualDataCurrent, setAnnualDataCurrent] = useState<AnnualSalesData[]>([]);
+    const [annualDataPrevious, setAnnualDataPrevious] = useState<AnnualSalesData[]>([]);
 
     // Filters
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
@@ -18,14 +21,18 @@ const SalesSummaryPage: React.FC = () => {
     useEffect(() => {
         const loadData = async () => {
             setLoading(true);
-            const [summaryRes, dailyRes, metricsRes] = await Promise.all([
+            const [summaryRes, dailyRes, metricsRes, annCurrRes, annPrevRes] = await Promise.all([
                 fetchSalesSummary(selectedYear, selectedMonth),
                 fetchDailyMovements(selectedYear, selectedMonth),
-                fetchSalesMetrics(selectedYear, selectedMonth)
+                fetchSalesMetrics(selectedYear, selectedMonth),
+                fetchAnnualSales(selectedYear),
+                fetchAnnualSales(selectedYear - 1)
             ]);
             setData(summaryRes);
             setDailyData(dailyRes);
             setMetrics(metricsRes);
+            setAnnualDataCurrent(annCurrRes);
+            setAnnualDataPrevious(annPrevRes);
             setLoading(false);
         };
         loadData();
@@ -34,32 +41,59 @@ const SalesSummaryPage: React.FC = () => {
     // ... Derived stats ...
     const totalIpi = (metrics?.ipi_val_matriz || 0) + (metrics?.ipi_val_filial || 0);
 
-    // ... Render ...
-    // Update IPI Card Content below in next tool call or finding it
-
     // ...
-    // IPI Card Rendering Block:
-    /*
-                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-1 opacity-5">
-                         <Sigma size={60} />
-                    </div>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2 mb-1">
-                        Valor IPI (Mês)
-                    </p>
-                    <div>
-                        <div className="text-lg font-bold text-slate-600">{formatCurrency(totalIpi)}</div>
-                        <div className="text-[10px] text-slate-400 mt-0.5">
-                            Matriz: {formatCurrency(metrics?.ipi_val_matriz || 0)} | Filial: {formatCurrency(metrics?.ipi_val_filial || 0)}
-                        </div>
-                    </div>
-                </div>
-    */
+    // Calculate Trend Line (Linear Regression) for Current Year
+    const annualChartData = useMemo(() => {
+        // Merge Current and Previous
+        const merged = [];
+        const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
-    // Wait, I need to do the replacement in one go. I will include the full updated file content for safety or target carefully.
-    // I already have the card in the previous edit. I will target the imports and state first, then the card specific div.
+        // Prepare arrays for regression (x = month index 0-11, y = revenue)
+        const xValues: number[] = [];
+        const yValues: number[] = [];
 
-    // Let's do the imports and data fetching first.
+        for (let i = 0; i < 12; i++) {
+            const m = i + 1;
+            const curr = annualDataCurrent.find(d => d.month === m)?.total_revenue || 0;
+            const prev = annualDataPrevious.find(d => d.month === m)?.total_revenue || 0;
+
+            if (curr > 0) {
+                xValues.push(i);
+                yValues.push(curr);
+            }
+
+            merged.push({
+                name: months[i],
+                monthIndex: i,
+                RevenueCurrent: curr,
+                RevenuePrevious: prev,
+                Trend: 0 // Placeholder
+            });
+        }
+
+        // Linear Regression: y = mx + b
+        if (xValues.length > 1) {
+            const n = xValues.length;
+            const sumX = xValues.reduce((a, b) => a + b, 0);
+            const sumY = yValues.reduce((a, b) => a + b, 0);
+            const sumXY = xValues.reduce((sum, x, i) => sum + x * yValues[i], 0);
+            const sumXX = xValues.reduce((sum, x) => sum + x * x, 0);
+
+            const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+            const intercept = (sumY - slope * sumX) / n;
+
+            // Apply trend line only up to the last known month + maybe projection?
+            // User asked for trend line... typically extends slightly or covers known data.
+            merged.forEach((item, i) => {
+                // Calculate Trend for all months to show projection
+                item.Trend = slope * i + intercept;
+                // Don't show negative trend
+                if (item.Trend < 0) item.Trend = 0;
+            });
+        }
+
+        return merged;
+    }, [annualDataCurrent, annualDataPrevious]);
 
 
     // Derived Statistics
@@ -110,7 +144,13 @@ const SalesSummaryPage: React.FC = () => {
                             onClick={() => setViewMode('chart')}
                             className={`px-3 py-1.5 rounded-md text-sm font-bold flex items-center gap-2 transition-all ${viewMode === 'chart' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                         >
-                            <BarChart3 size={16} /> Evolução Diária
+                            <BarChart3 size={16} /> Diário
+                        </button>
+                        <button
+                            onClick={() => setViewMode('annual')}
+                            className={`px-3 py-1.5 rounded-md text-sm font-bold flex items-center gap-2 transition-all ${viewMode === 'annual' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            <PieChart size={16} /> Anual
                         </button>
                     </div>
 
@@ -309,7 +349,7 @@ const SalesSummaryPage: React.FC = () => {
                             </table>
                         </div>
                     </>
-                ) : (
+                ) : viewMode === 'chart' ? (
                     <div className="p-6 h-[500px]">
                         <div className="mb-6 flex items-center justify-between">
                             <h3 className="font-bold text-slate-700 flex items-center gap-2">
@@ -364,6 +404,47 @@ const SalesSummaryPage: React.FC = () => {
                                 <p className="text-xs mt-1">Isso ocorre se você só importou o acumulado final, sem acompanhar dia a dia.</p>
                             </div>
                         )}
+                    </div>
+                ) : (
+                    // ANNUAL COMPARISON CHART
+                    <div className="p-6 h-[500px]">
+                        <div className="mb-6 flex items-center justify-between">
+                            <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                                <PieChart size={18} className="text-slate-400" /> Faturamento {selectedYear} x {selectedYear - 1}
+                            </h3>
+                            <p className="text-xs text-slate-400">Comparativo mensal com ano anterior e tendência.</p>
+                        </div>
+
+                        <ResponsiveContainer width="100%" height="100%">
+                            <ComposedChart data={annualChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                                <XAxis dataKey="name" stroke="#cbd5e1" fontSize={12} />
+                                <YAxis
+                                    stroke="#cbd5e1"
+                                    fontSize={12}
+                                    tickFormatter={(val) => `R$ ${(val / 1000).toFixed(0)}k`}
+                                />
+                                <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                                <Legend />
+
+                                {/* Previous Year - Light Bar */}
+                                <Bar dataKey="RevenuePrevious" name={`Receita ${selectedYear - 1}`} fill="#e2e8f0" radius={[4, 4, 0, 0]} />
+
+                                {/* Current Year - Dark Blue Bar */}
+                                <Bar dataKey="RevenueCurrent" name={`Receita ${selectedYear}`} fill="#1e3a8a" radius={[4, 4, 0, 0]} />
+
+                                {/* Trend Line - Dotted */}
+                                <Line
+                                    type="monotone"
+                                    dataKey="Trend"
+                                    name={`Tendência (${selectedYear})`}
+                                    stroke="#3b82f6"
+                                    strokeDasharray="5 5"
+                                    dot={false}
+                                    strokeWidth={2}
+                                />
+                            </ComposedChart>
+                        </ResponsiveContainer>
                     </div>
                 )}
             </div>

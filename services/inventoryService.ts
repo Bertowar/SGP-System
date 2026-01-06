@@ -1,7 +1,7 @@
 
 import { supabase } from './supabaseClient';
 import { getCurrentOrgId } from './auth';
-import { RawMaterial, ProductBOM, StructureItem, InventoryTransaction, Supplier, PurchaseOrder, PurchaseOrderItem, ShippingOrder, ShippingItem, ProductCostSummary, ProductionEntry, ProductRoute, RouteStep } from '../types';
+import { RawMaterial, ProductBOM, ProductBOMHeader, BOMItem, StructureItem, InventoryTransaction, Supplier, PurchaseOrder, PurchaseOrderItem, ShippingOrder, ShippingItem, ProductCostSummary, ProductionEntry, ProductRoute, RouteStep, MRPPlanItem } from '../types';
 import { formatError } from './utils';
 
 // --- INVENTORY & BOM ---
@@ -113,44 +113,176 @@ export const deleteMaterial = async (id: string): Promise<void> => {
     await supabase.from('raw_materials').delete().eq('id', id);
 };
 
-export const fetchBOM = async (productCode: string): Promise<ProductBOM[]> => {
+
+// --- REFATORED BOM (VERSIONED) ---
+
+export const fetchBOMVersions = async (productId: string): Promise<ProductBOMHeader[]> => {
     try {
         const orgId = await getCurrentOrgId();
-        const { data, error } = await supabase.from('product_bom').select('*, material:raw_materials(*)').eq('product_code', productCode).eq('organization_id', orgId);
+        const { data, error } = await supabase.from('product_boms')
+            .select('*')
+            .eq('product_id', productId)
+            .eq('organization_id', orgId)
+            .order('version', { ascending: false });
+
+        if (error) throw error;
+        return data.map((d: any) => ({
+            id: d.id,
+            organizationId: d.organization_id,
+            productId: d.product_id,
+            version: d.version,
+            active: d.active,
+            description: d.description,
+            createdAt: d.created_at
+        }));
+    } catch (e) {
+        console.error("Error fetching BOM versions:", e);
+        return [];
+    }
+};
+
+export const getActiveBOM = async (productId: string): Promise<ProductBOMHeader | null> => {
+    try {
+        const orgId = await getCurrentOrgId();
+        const { data, error } = await supabase.from('product_boms')
+            .select('*')
+            .eq('product_id', productId)
+            .eq('organization_id', orgId)
+            .eq('active', true)
+            .single();
+
+        if (error) return null;
+        return {
+            id: data.id,
+            organizationId: data.organization_id,
+            productId: data.product_id,
+            version: data.version,
+            active: data.active,
+            description: data.description,
+            createdAt: data.created_at
+        };
+    } catch (e) { return null; }
+};
+
+export const fetchBOMItems = async (bomId: string): Promise<BOMItem[]> => {
+    try {
+        const orgId = await getCurrentOrgId();
+        const { data, error } = await supabase.from('bom_items')
+            .select('*, material:raw_materials(*)')
+            .eq('bom_id', bomId)
+            .eq('organization_id', orgId);
+
         if (error) return [];
         return data.map((d: any) => ({
-            id: d.id, productCode: d.product_code, materialId: d.material_id, quantityRequired: d.quantity_required,
-            material: d.material ? { id: d.material.id, code: d.material.code, name: d.material.name, unit: d.material.unit, currentStock: d.material.current_stock || 0, minStock: d.material.min_stock || 0, unitCost: d.material.unit_cost || 0, category: d.material.category, group: d.material.group_name } : undefined
+            id: d.id,
+            organizationId: d.organization_id,
+            bomId: d.bom_id,
+            materialId: d.material_id,
+            quantity: d.quantity,
+            material: d.material ? {
+                id: d.material.id,
+                code: d.material.code,
+                name: d.material.name,
+                unit: d.material.unit,
+                currentStock: d.material.current_stock || 0,
+                minStock: d.material.min_stock || 0,
+                unitCost: d.material.unit_cost || 0,
+                category: d.material.category,
+                group: d.material.group_name
+            } : undefined
         }));
     } catch (e) { return []; }
 };
 
-export const fetchAllBOMs = async (): Promise<ProductBOM[]> => {
-    try {
-        const orgId = await getCurrentOrgId();
-        const { data, error } = await supabase.from('product_bom').select('*, material:raw_materials(*)').eq('organization_id', orgId);
-        if (error) return [];
-        return data.map((d: any) => ({
-            id: d.id, productCode: d.product_code, materialId: d.material_id, quantityRequired: d.quantity_required,
-            material: d.material ? { id: d.material.id, code: d.material.code, name: d.material.name, unit: d.material.unit, currentStock: d.material.current_stock || 0, minStock: d.material.min_stock || 0, unitCost: d.material.unit_cost || 0, category: d.material.category, group: d.material.group_name } : undefined
-        }));
-    } catch (e) { return []; }
-};
-
-export const saveBOM = async (bom: Omit<ProductBOM, 'material'>): Promise<void> => {
+export const createBOMVersion = async (productId: string, description?: string, cloneFromVersionId?: string): Promise<string> => {
     const orgId = await getCurrentOrgId();
-    if (bom.id) await supabase.from('product_bom').update({ quantity_required: bom.quantityRequired }).eq('id', bom.id);
-    else await supabase.from('product_bom').insert([{
-        product_code: bom.productCode,
-        material_id: bom.materialId,
-        quantity_required: bom.quantityRequired,
-        organization_id: orgId
-    }]);
+
+    // 1. Determine new version number
+    const versions = await fetchBOMVersions(productId);
+    const newVersion = versions.length > 0 ? (versions[0].version + 1) : 1;
+
+    // 2. Create Header
+    const { data: newHeader, error: headerError } = await supabase.from('product_boms').insert([{
+        organization_id: orgId,
+        product_id: productId,
+        version: newVersion,
+        active: false, // Default to inactive
+        description: description || `Versão ${newVersion}`
+    }]).select().single();
+
+    if (headerError) throw headerError;
+    const newBOMId = newHeader.id;
+
+    // 3. Clone Items if requested
+    if (cloneFromVersionId) {
+        const oldItems = await fetchBOMItems(cloneFromVersionId);
+        if (oldItems.length > 0) {
+            const itemsToInsert = oldItems.map(item => ({
+                organization_id: orgId,
+                bom_id: newBOMId,
+                material_id: item.materialId,
+                quantity: item.quantity
+            }));
+            await supabase.from('bom_items').insert(itemsToInsert);
+        }
+    }
+
+    return newBOMId;
+};
+
+export const activateBOMVersion = async (productId: string, bomId: string): Promise<void> => {
+    const orgId = await getCurrentOrgId();
+    // Deactivate all
+    await supabase.from('product_boms').update({ active: false }).eq('product_id', productId).eq('organization_id', orgId);
+    // Activate target
+    await supabase.from('product_boms').update({ active: true }).eq('id', bomId).eq('organization_id', orgId);
+};
+
+export const saveBOMItem = async (item: Omit<BOMItem, 'material' | 'organizationId'>): Promise<void> => {
+    const orgId = await getCurrentOrgId();
+    if (item.id) {
+        await supabase.from('bom_items').update({ quantity: item.quantity }).eq('id', item.id);
+    } else {
+        await supabase.from('bom_items').insert([{
+            organization_id: orgId,
+            bom_id: item.bomId,
+            material_id: item.materialId,
+            quantity: item.quantity
+        }]);
+    }
 };
 
 export const deleteBOMItem = async (id: string): Promise<void> => {
-    await supabase.from('product_bom').delete().eq('id', id);
+    await supabase.from('bom_items').delete().eq('id', id);
 };
+
+// --- LEGACY SUPPORT (Deprecate soon) ---
+
+export const fetchBOM = async (productCode: string): Promise<ProductBOM[]> => {
+    // Adapter: Try to find Active BOM and return items in legacy format
+    try {
+        const { data: product } = await supabase.from('products').select('id').eq('code', productCode).single();
+        if (!product) return [];
+
+        const activeBOM = await getActiveBOM(product.id);
+        if (activeBOM) {
+            const items = await fetchBOMItems(activeBOM.id);
+            return items.map(i => ({
+                id: i.id,
+                productCode: productCode,
+                materialId: i.materialId,
+                quantityRequired: i.quantity,
+                material: i.material
+            }));
+        }
+        return [];
+    } catch (e) { return []; }
+};
+
+export const getAllBOMs = async (): Promise<any[]> => { return []; } // Deprecated unused
+export const fetchAllBOMs = async (): Promise<any[]> => { return []; } // Deprecated stub for Kitting
+export const saveBOM = async (bom: any): Promise<void> => { throw new Error("Use new saveBOMItem method"); } // Block legacy write
+
 
 // --- SIMULATION & STRUCTURE ---
 
@@ -325,6 +457,156 @@ const buildStructureTree = async (
 
     // Lead Time = Max Material Lead Time + Production Time
     item.leadTime = maxLeadTime + opTimeDays;
+
+    return item;
+};
+
+// --- MRP CALCULATION ---
+
+export const calculateMRP = async (productIdOrCode: string, quantity: number): Promise<MRPPlanItem | null> => {
+    // 1. Resolve Product
+    let product: any = null;
+    // Allow ID or Code
+    if (productIdOrCode.length === 36) { // Heuristic for UUID
+        const { data } = await supabase.from('products').select('*').eq('id', productIdOrCode).single();
+        product = data;
+    } else {
+        const { data } = await supabase.from('products').select('*').eq('code', productIdOrCode).single();
+        product = data;
+    }
+
+    if (!product) return null;
+
+    return await explodeMRP(product, quantity, 1, null);
+};
+
+const explodeMRP = async (
+    product: any,
+    requiredQty: number,
+    level: number,
+    parentId: string | null
+): Promise<MRPPlanItem> => {
+    const orgId = await getCurrentOrgId();
+
+    // Inventory Snapshot (Current Stock)
+    // NOTE: This does NO reservation checking on existing OPs. It is "Stock on Hand".
+    // Future improvement: "Stock Available" = Stock - Reservations
+    const currentStock = product.currentStock || 0; // mapped from products table or raw_materials join? 
+    // Wait, 'products' table has 'currentStock' legacy? Or should we join 'raw_materials'?
+    // In our system, they are separate. 'products' table doesn't track stock usually, 'raw_materials' does.
+    // BUT Finished Goods are in 'raw_materials' too?
+    // Let's assume 'products' might NOT have stock. We should check 'raw_materials' via code match if mapping exists.
+
+    let stock = 0;
+    // Try to find material for this product to get real stock
+    const { data: matData } = await supabase.from('raw_materials').select('current_stock').eq('code', product.code).single();
+    if (matData) stock = matData.current_stock;
+
+    // Net Requirement logic
+    // If Level 1 (Top Level), we assume we WANT TO PRODUCE 'quantity' regardless of stock (unless it's a sales order check).
+    // Usually for Production Order creation, the User asks for X.
+    // So for Level 1, Net = Quantity.
+    // For Level > 1 (Components), Net = Required - Stock.
+
+    let netRequirement = 0;
+    let action: 'PRODUCE' | 'BUY' | 'STOCK' | 'NONE' = 'NONE';
+
+    if (level === 1) {
+        netRequirement = requiredQty; // Build what is asked
+        action = 'PRODUCE';
+    } else {
+        netRequirement = Math.max(0, requiredQty - stock);
+        if (netRequirement > 0) {
+            // Check if it's manufactured (INTERMEDIATE/FINISHED) or Purchased
+            // 'type' is in product table.
+            if (product.type === 'FINISHED' || product.type === 'INTERMEDIATE') {
+                action = 'PRODUCE';
+            } else {
+                action = 'BUY'; // It's a component/raw material
+            }
+        } else {
+            action = 'STOCK'; // We have enough for this branch
+        }
+    }
+
+    // Determine Type
+    let type: 'FINISHED' | 'INTERMEDIATE' | 'COMPONENT' = product.type || 'COMPONENT';
+    // If it has no type but has a BOM, it's Intermediate?
+    // Let's trust the field. Defaults to Component.
+
+    const item: MRPPlanItem = {
+        id: parentId ? `${parentId}-${product.code}` : product.code,
+        productId: product.id,
+        productCode: product.code,
+        name: product.produto, // or name
+        type: type,
+        level: level,
+        requiredQty: requiredQty,
+        currentStock: stock,
+        netRequirement: netRequirement,
+        action: action,
+        leadTime: 0, // Calculated
+        unit: product.unit || 'un',
+        children: []
+    };
+
+    // If we need to PRODUCE, we explode dependencies based on NET REQUIREMENT
+    // (If we use Stock, we don't need to produce, so no components consumed *for that portion*)
+    // Recursion base: netRequirement > 0 AND action == 'PRODUCE'
+
+    if (action === 'PRODUCE' && netRequirement > 0) {
+        // Fetch Active BOM
+        // Use existing methods or direct query
+        const activeBOM = await getActiveBOM(product.id);
+
+        if (activeBOM) {
+            item.bomId = activeBOM.id;
+            const bomItems = await fetchBOMItems(activeBOM.id); // Includes material details
+
+            let maxLeadTime = 0;
+
+            for (const bItem of bomItems) {
+                if (!bItem.material) continue;
+
+                const qtyPerUnit = bItem.quantity;
+                const childRequiredQty = qtyPerUnit * netRequirement; // Consumes based on what we Make
+
+                // Recursion: Check if this Material is also a Product (Manufacturable)
+                const { data: childProduct } = await supabase.from('products').select('*').eq('code', bItem.material.code).single();
+
+                if (childProduct) {
+                    // It's a sub-assembly
+                    const childNode = await explodeMRP(childProduct, childRequiredQty, level + 1, item.id);
+                    item.children?.push(childNode);
+                    if (childNode.leadTime > maxLeadTime) maxLeadTime = childNode.leadTime;
+                } else {
+                    // It's a Raw Material (Leaf)
+                    const mat = bItem.material;
+                    const stockMat = mat.currentStock;
+                    const netMat = Math.max(0, childRequiredQty - stockMat);
+                    const isEnough = stockMat >= childRequiredQty;
+
+                    item.children?.push({
+                        id: `${item.id}-${mat.code}`,
+                        productId: '', // No Product ID for raw material logic here unless linked
+                        productCode: mat.code,
+                        name: mat.name,
+                        type: 'COMPONENT',
+                        level: level + 1,
+                        requiredQty: childRequiredQty,
+                        currentStock: stockMat,
+                        netRequirement: netMat,
+                        action: netMat > 0 ? 'BUY' : 'STOCK',
+                        leadTime: mat.leadTime || 0,
+                        unit: mat.unit
+                    });
+
+                    if ((mat.leadTime || 0) > maxLeadTime) maxLeadTime = mat.leadTime || 0;
+                }
+            }
+            item.leadTime = maxLeadTime + 1; // +1 day for production
+        }
+    }
 
     return item;
 };

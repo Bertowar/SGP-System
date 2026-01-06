@@ -2,7 +2,7 @@
 import { supabase } from './supabaseClient';
 import { getCurrentOrgId } from './auth';
 import { ProductionOrder, Product, MaterialReservation, WorkOrder, AppAlert } from '../types';
-import { fetchProductRoute } from './inventoryService';
+import { fetchProductRoute, calculateMRP } from './inventoryService';
 import { formatError } from './utils';
 
 // DTO for Creating Production Order
@@ -15,6 +15,7 @@ interface CreateProductionOrderDTO {
     notes?: string;
     machineId?: string; // Preferred Machine
     parentOrderId?: string; // For Recursive MRP
+    mrpPlan?: any; // MRPPlanItem (Typed as any to avoid circular import issues if types.ts not updated yet, but we updated it)
 }
 
 export const createProductionOrder = async (dto: CreateProductionOrderDTO): Promise<ProductionOrder> => {
@@ -94,72 +95,62 @@ export const createProductionOrder = async (dto: CreateProductionOrderDTO): Prom
     const newOP = opData as ProductionOrder;
 
     // B. Explode BOM -> Material Reservations (RF5) & Recursive Child OPs (MRP Multi-level)
-    if (bomData && bomData.length > 0) {
+    // STRATEGY: Use calculateMRP to get the plan, then execute it.
+
+    // 1. Get Plan (Use provided or Calculate)
+    let plan = dto.mrpPlan;
+    if (!plan) {
+        // Auto-calculate if not provided
+        plan = await calculateMRP(product.id, dto.quantity);
+    }
+
+    // 2. Process Children (Components/Intermediates)
+    if (plan && plan.children && plan.children.length > 0) {
         const reservations = [];
 
-        for (const bomItem of bomData) {
-            const requiredQty = (bomItem.quantity_required || 0) * dto.quantity;
+        for (const child of plan.children) {
+            // 2.1 Create Reservation (Always needed for the Parent to consume)
+            // We need the material_id. In MRPPlanItem we store productId (if product) or... 
+            // we need to resolve Material ID.
+            // The MRPPlanItem has 'productCode'. We need to find the raw_material ID.
+            // Optimize: calculateMRP should return IDs? It does: 'productId' and 'id'. 
+            // But for Raw Materials, 'productId' might be empty.
+            // We need to look up raw_material ID by code if missing.
 
-            // Reservation is always created (Parent needs to consume valid stock)
-            reservations.push({
-                organization_id: orgId,
-                production_order_id: newOP.id,
-                material_id: bomItem.material_id, // Ensure this exists in BOM table
-                quantity: requiredQty,
-                status: 'PENDING'
-            });
+            let materialId = child.productId; // Try product ID first
+            if (!materialId || materialId.length < 10) { // If empty or short
+                const { data: matData } = await supabase.from('raw_materials').select('id').eq('code', child.productCode).single();
+                if (matData) materialId = matData.id;
+            }
 
-            // CHECK RECURSION: Is this material ALSO a Product?
-            // Heuristic: Check if there is a 'product' with the same CODE as the 'material'?
-            // Or better, check if the material is linked to a product? 
-            // In our system, Products and RawMaterials are separate tables, BUT 
-            // Intermediate products like "Bobina" might be registered as BOTH or just Product?
-            // Current Schema: `products` table has `type` (INTERMEDIATE/FINISHED).
-            // `raw_materials` table has `code`.
-            // If we have a Product with the same Code as this Material, we assume it's a manufactured item.
-            // To optimize, we should have fetched this info earlier, but for now we look it up.
-            // We need the material Code. `bomData` usually implies `select(*, material:raw_materials(*))`.
-            // Our query in Step 537 `select('*')` might strictly get BOM fields.
-            // Let's rely on valid BOM structure. We need Material Code to check Product existence.
+            if (materialId) {
+                reservations.push({
+                    organization_id: orgId,
+                    production_order_id: newOP.id,
+                    material_id: materialId,
+                    quantity: child.requiredQty, // Gross Requirement for this OP
+                    status: 'PENDING'
+                });
+            }
 
-            // Optimization: Fetch references if possible.
-            // For MVP: Let's assume we can query `products` by code.
-            // We need to fetch the material code from `raw_materials` id first if not available.
-            // This loop awaits inside, which is slower but safer for logic.
-
-            const { data: matData } = await supabase.from('raw_materials').select('code').eq('id', bomItem.material_id).single();
-            if (matData && matData.code) {
-                const { data: childProduct } = await supabase
-                    .from('products')
-                    .select('*')
-                    .eq('organization_id', orgId)
-                    .eq('code', matData.code) // Linking Material Code = Product Code
-                    .limit(1)
-                    .single();
-
-                if (childProduct) {
-                    // It is a manufactured item! Create Child OP.
-                    console.log(`[MRP] Auto-creating Child OP for ${childProduct.name} (Parent: ${newOP.id})`);
-
-                    // Recursive Call
-                    await createProductionOrder({
-                        productCode: childProduct.code,
-                        quantity: requiredQty, // Produce exactly what's needed
-                        deliveryDate: dto.deliveryDate, // Same delivery target
-                        priority: dto.priority,
-                        notes: `Auto-generated for Parent OP #${newOP.id.substring(0, 8)}`,
-                        parentOrderId: newOP.id, // Link to Parent
-                        salesOrderId: dto.salesOrderId
-                    });
-                }
+            // 2.2 Recursion: Create Sub-OP if Action is PRODUCE
+            if (child.action === 'PRODUCE') {
+                console.log(`[MRP] Creating Sub-OP for ${child.name} (Parent: ${newOP.id})`);
+                await createProductionOrder({
+                    productCode: child.productCode,
+                    quantity: child.netRequirement, // Produce the NET amount needed
+                    deliveryDate: dto.deliveryDate,
+                    priority: dto.priority,
+                    notes: `Sub-OP (MRP) para OP #${newOP.id.substring(0, 8)}`,
+                    parentOrderId: newOP.id,
+                    salesOrderId: dto.salesOrderId,
+                    mrpPlan: child // Pass the child plan to avoid re-calculation
+                });
             }
         }
 
         if (reservations.length > 0) {
-            const { error: resError } = await supabase
-                .from('material_reservations')
-                .insert(reservations);
-
+            const { error: resError } = await supabase.from('material_reservations').insert(reservations);
             if (resError) console.error("Erro ao criar reservas:", resError);
         }
     }

@@ -315,12 +315,35 @@ export interface RawMaterial {
   leadTime?: number; // NEW: Prazo de Entrega (Dias)
 }
 
+// DEPRECATED: Old flat structure
 export interface ProductBOM {
   id: string;
-  productCode: string;
+  productCode: string; // Legacy
   materialId: string;
-  quantityRequired: number; // Qty per unit of product
-  material?: RawMaterial; // For display
+  quantityRequired: number;
+  material?: RawMaterial;
+}
+
+// NEW: BOM Header (Versioned)
+export interface ProductBOMHeader {
+  id: string;
+  organizationId: string;
+  productId: string;
+  version: number;
+  active: boolean;
+  description?: string;
+  createdAt?: string;
+  items?: BOMItem[]; // Join
+}
+
+// NEW: BOM Items
+export interface BOMItem {
+  id: string;
+  organizationId: string;
+  bomId: string;
+  materialId: string;
+  quantity: number;
+  material?: RawMaterial; // Join
 }
 
 // NEW: Interface for BOM Structure Simulation
@@ -440,5 +463,28 @@ export interface RouteStep {
   minLotTransfer: number;
   description?: string;
 }
+// --- MRP (Material Requirements Planning) ---
 
-// Ensure Product has a link to its active route if needed, or query separately.
+export interface MRPPlanItem {
+  id: string; // Unique key for the tree
+  productId: string;
+  productCode: string;
+  name: string;
+  type: 'FINISHED' | 'INTERMEDIATE' | 'COMPONENT';
+  level: number;
+
+  requiredQty: number; // Gross Requirement
+  currentStock: number;
+  netRequirement: number; // Max(0, Required - Stock)
+
+  action: 'PRODUCE' | 'BUY' | 'STOCK' | 'NONE'; // NONE if netReq is 0
+
+  leadTime: number; // Days
+  unit: string;
+
+  children?: MRPPlanItem[];
+
+  // Metadata for creation
+  bomId?: string;
+  routeId?: string;
+}

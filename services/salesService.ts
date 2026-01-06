@@ -179,9 +179,93 @@ export const fetchDailyMovements = async (year: number, month: number): Promise<
     }
 };
 
+
+export interface AnnualSalesData {
+    month: number;
+    total_products: number;
+    total_ipi: number;
+    total_revenue: number; // Products + IPI
+}
+
 /**
- * Fetches the last import date for a specific organization/month to help UI validation
- * (Optional helper, but good for UI feedback)
+ * Fetches aggregated sales data for an entire year (Monthly granulation).
+ * Used for annual comparison charts.
+ */
+export const fetchAnnualSales = async (year: number): Promise<AnnualSalesData[]> => {
+    try {
+        // 1. Fetch Product Totals per Month
+        // We need to sum last_accumulated_value for all products where year = X, grouped by month.
+        // Supabase standard client doesn't support "group by" cleanly without RPC or view, 
+        // but for now we can fetch distinct product/month sums or use a simple loop if dataset isn't huge.
+        // BETTER: Create a DB View or RPC? 
+        // For speed/simplicity without migration: Fetch all monthly_accumulated for the year and aggregate in JS.
+        // Assuming ~1000 products * 12 months = 12000 rows. It's handleable but not ideal.
+        // Let's check sales_monthly_metrics first, maybe we can rely on that if we had product totals there? 
+        // We don't. We only have IPI there.
+
+        // Let's try to do it efficiently.
+        // Since we are in Execution mode and want to be fast but correct: 
+        // I will fetch only the necessary columns: month, last_accumulated_value.
+
+        const { data: productData, error: productError } = await supabase
+            .from('sales_monthly_accumulated')
+            .select('month, last_accumulated_value')
+            .eq('year', year);
+
+        if (productError) throw productError;
+
+        // 2. Fetch IPI Metrics per Month
+        const { data: metricsData, error: metricsError } = await supabase
+            .from('sales_monthly_metrics')
+            .select('month, ipi_val_matriz, ipi_val_filial')
+            .eq('year', year);
+
+        if (metricsError) throw metricsError;
+
+        // 3. Aggregate
+        const monthlyStats = new Map<number, AnnualSalesData>();
+
+        // Initialize all 12 months
+        for (let m = 1; m <= 12; m++) {
+            monthlyStats.set(m, { month: m, total_products: 0, total_ipi: 0, total_revenue: 0 });
+        }
+
+        // Validate and Sum Products
+        if (productData) {
+            productData.forEach((item: any) => {
+                const m = item.month;
+                if (monthlyStats.has(m)) {
+                    monthlyStats.get(m)!.total_products += (item.last_accumulated_value || 0);
+                }
+            });
+        }
+
+        // Validate and Sum IPI
+        if (metricsData) {
+            metricsData.forEach((item: any) => {
+                const m = item.month;
+                if (monthlyStats.has(m)) {
+                    const ipi = (item.ipi_val_matriz || 0) + (item.ipi_val_filial || 0);
+                    monthlyStats.get(m)!.total_ipi += ipi;
+                }
+            });
+        }
+
+        // Calculate Final Revenue
+        monthlyStats.forEach(stat => {
+            stat.total_revenue = stat.total_products + stat.total_ipi;
+        });
+
+        return Array.from(monthlyStats.values()).sort((a, b) => a.month - b.month);
+
+    } catch (error) {
+        console.error(`Error fetching annual sales for ${year}:`, error);
+        return [];
+    }
+};
+
+/**
+ * Fetches the last import date...
  */
 export const getLastImportInfo = async (year: number, month: number) => {
     try {
@@ -198,4 +282,4 @@ export const getLastImportInfo = async (year: number, month: number) => {
     } catch (e) {
         return null;
     }
-}
+};

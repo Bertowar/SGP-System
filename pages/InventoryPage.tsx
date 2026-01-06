@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { fetchMaterials, saveMaterial, deleteMaterial, processStockTransaction, fetchInventoryTransactions, fetchMaterialTransactions, formatError, renameMaterialGroup, fetchAllBOMs, fetchProducts, formatCurrency } from '../services/storage';
+import { fetchMaterials, saveMaterial, deleteMaterial, processStockTransaction, fetchInventoryTransactions, fetchMaterialTransactions, formatError, renameMaterialGroup, fetchProducts, formatCurrency } from '../services/storage';
+import { fetchBOMItems, getActiveBOM } from '../services/inventoryService';
 import { calculateKittingOptions } from '../services/kittingService';
 import { RawMaterial, MaterialCategory, InventoryTransaction } from '../types';
 import { Plus, Search, Cuboid, Save, ArrowDownCircle, ArrowUpCircle, RefreshCw, Trash2, X, Box, Zap, User, Hammer, Loader2, AlertCircle, ArrowRight, Minus, History, FileText, DollarSign, BarChart3, Filter, Cpu, Layers, ChevronRight, ArrowLeft, LayoutGrid, List as ListIcon, Edit, Undo2, Info, CheckCircle2, Tag } from 'lucide-react';
@@ -383,12 +384,32 @@ const InventoryPage: React.FC = () => {
     const handleOpenKitting = async () => {
         setLoading(true);
         try {
-            const [prods, mats, boms] = await Promise.all([
+            const [prods, mats] = await Promise.all([
                 fetchProducts(),
-                fetchMaterials(),
-                fetchAllBOMs()
+                fetchMaterials()
             ]);
-            const options = calculateKittingOptions(prods, mats, boms);
+
+            // Fetch Active BOM for each product
+            const bomPromises = prods.map(async (p) => {
+                const header = await getActiveBOM(p.id);
+                if (!header) return null;
+                const items = await fetchBOMItems(header.id);
+                // Map to old structure expected by calculateKittingOptions for now, or update service?
+                // Updating service is better. But let's see. 
+                // calculateKittingOptions expects 'boms' array where each item has productCode.
+                // We will reconstruct a flat array of BOM items with productCode injected.
+                return items.map(i => ({
+                    ...i,
+                    productCode: p.codigo,
+                    quantityRequired: i.quantity, // Adapter
+                    materialId: i.materialId
+                }));
+            });
+
+            const bomsArrays = await Promise.all(bomPromises);
+            const flatBoms = bomsArrays.flat().filter(b => b !== null);
+
+            const options = calculateKittingOptions(prods, mats, flatBoms);
             setKittingOptions(options);
             setKittingModalOpen(true);
         } catch (e) {
@@ -661,6 +682,7 @@ const InventoryPage: React.FC = () => {
                                                 onClick={handleRenameGroup}
                                                 className="p-1 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors"
                                                 title="Renomear Grupo (Pai)"
+                                                aria-label="Renomear Grupo (Pai)"
                                             >
                                                 <Edit size={14} />
                                             </button>
@@ -721,6 +743,7 @@ const InventoryPage: React.FC = () => {
                                                             onClick={() => openHistory(mat)}
                                                             className="p-1.5 bg-brand-50 text-brand-700 rounded hover:bg-brand-100"
                                                             title="Ver Histórico (Kardex)"
+                                                            aria-label="Ver Histórico (Kardex)"
                                                         >
                                                             <History size={16} />
                                                         </button>
@@ -728,6 +751,7 @@ const InventoryPage: React.FC = () => {
                                                             onClick={() => openTrx(mat, 'IN')}
                                                             className="p-1.5 bg-green-50 text-green-700 rounded hover:bg-green-100"
                                                             title="Entrada"
+                                                            aria-label="Entrada"
                                                         >
                                                             <ArrowDownCircle size={16} />
                                                         </button>
@@ -735,6 +759,7 @@ const InventoryPage: React.FC = () => {
                                                             onClick={() => openTrx(mat, 'OUT')}
                                                             className="p-1.5 bg-orange-50 text-orange-700 rounded hover:bg-orange-100"
                                                             title="Saída"
+                                                            aria-label="Saída"
                                                         >
                                                             <ArrowUpCircle size={16} />
                                                         </button>
@@ -742,6 +767,7 @@ const InventoryPage: React.FC = () => {
                                                             onClick={() => openEdit(mat)}
                                                             className="p-1.5 bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
                                                             title="Editar"
+                                                            aria-label="Editar"
                                                         >
                                                             <RefreshCw size={16} />
                                                         </button>
@@ -749,6 +775,7 @@ const InventoryPage: React.FC = () => {
                                                             onClick={() => handleDelete(mat.id)}
                                                             className="p-1.5 bg-red-50 text-red-700 rounded hover:bg-red-100"
                                                             title="Excluir"
+                                                            aria-label="Excluir"
                                                         >
                                                             <Trash2 size={16} />
                                                         </button>
@@ -770,7 +797,7 @@ const InventoryPage: React.FC = () => {
                     <div className="bg-white rounded-xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
                         <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
                             <h3 className="font-bold text-slate-800">{editingMat.id ? 'Editar Item de Estoque' : 'Novo Item de Estoque'}</h3>
-                            <button onClick={() => setModalOpen(false)}><X className="text-slate-400 hover:text-slate-600" /></button>
+                            <button onClick={() => setModalOpen(false)} aria-label="Fechar" title="Fechar"><X className="text-slate-400 hover:text-slate-600" /></button>
                         </div>
 
                         <div className="p-6 overflow-y-auto">
@@ -809,6 +836,8 @@ const InventoryPage: React.FC = () => {
                                                 className="w-full px-3 py-2 border border-blue-200 rounded-lg text-sm bg-white font-semibold text-slate-700 focus:ring-2 focus:ring-blue-400 outline-none shadow-sm"
                                                 value={editingMat.group || 'Diversos'}
                                                 onChange={e => setEditingMat({ ...editingMat, group: e.target.value })}
+                                                aria-label="Selecionar família existente"
+                                                title="Selecionar família existente"
                                             >
                                                 <option value="Diversos">Diversos (Padrão)</option>
                                                 {existingGroups.filter(g => g !== 'Diversos').map(g => (
@@ -884,6 +913,8 @@ const InventoryPage: React.FC = () => {
                                                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500 outline-none"
                                                 value={editingMat.category}
                                                 onChange={e => handleCategoryChange(e.target.value as any)}
+                                                aria-label="Selecionar categoria"
+                                                title="Selecionar categoria"
                                             >
                                                 {allCategories.map(cat => (
                                                     <option key={cat} value={cat}>{getCategoryLabel(cat)}</option>
@@ -903,7 +934,13 @@ const InventoryPage: React.FC = () => {
                                     {/* Unidade */}
                                     <div className="md:col-span-2">
                                         <label className="text-sm font-semibold text-slate-700 mb-1 block">Unidade</label>
-                                        <select className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500 outline-none" value={editingMat.unit} onChange={e => setEditingMat({ ...editingMat, unit: e.target.value })}>
+                                        <select
+                                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500 outline-none"
+                                            value={editingMat.unit}
+                                            onChange={e => setEditingMat({ ...editingMat, unit: e.target.value })}
+                                            aria-label="Selecionar unidade de medida"
+                                            title="Selecionar unidade de medida"
+                                        >
                                             <option value="kg">kg</option>
                                             <option value="g">g</option>
                                             <option value="un">un</option>
@@ -1066,7 +1103,7 @@ const InventoryPage: React.FC = () => {
                                 </h3>
                                 <p className="text-slate-500 text-sm">Transforme componentes (Pratos/Tampas) em Kits prontos.</p>
                             </div>
-                            <button onClick={() => setKittingModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X /></button>
+                            <button onClick={() => setKittingModalOpen(false)} className="text-slate-400 hover:text-slate-600" aria-label="Fechar" title="Fechar"><X /></button>
                         </div>
 
                         <div className="flex-1 overflow-y-auto space-y-4">
@@ -1118,6 +1155,8 @@ const InventoryPage: React.FC = () => {
                                                 className="w-24 px-2 py-1 border rounded font-bold text-right"
                                                 defaultValue={opt.maxKits > 0 ? opt.maxKits : 0}
                                                 id={`qty-${idx}`}
+                                                aria-label={`Quantidade a montar de ${opt.product.produto}`}
+                                                title={`Quantidade a montar de ${opt.product.produto}`}
                                             />
                                         </div>
                                         <button
