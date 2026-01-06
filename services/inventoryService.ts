@@ -1,7 +1,7 @@
 
 import { supabase } from './supabaseClient';
 import { getCurrentOrgId } from './auth';
-import { RawMaterial, ProductBOM, ProductBOMHeader, BOMItem, StructureItem, InventoryTransaction, Supplier, PurchaseOrder, PurchaseOrderItem, ShippingOrder, ShippingItem, ProductCostSummary, ProductionEntry, ProductRoute, RouteStep, MRPPlanItem } from '../types';
+import { RawMaterial, ProductBOMHeader, BOMItem, StructureItem, InventoryTransaction, Supplier, PurchaseOrder, PurchaseOrderItem, ShippingOrder, ShippingItem, ProductCostSummary, ProductionEntry, ProductRoute, RouteStep, MRPPlanItem } from '../types';
 import { formatError } from './utils';
 
 // --- INVENTORY & BOM ---
@@ -141,6 +141,58 @@ export const fetchBOMVersions = async (productId: string): Promise<ProductBOMHea
     }
 };
 
+export const fetchAllActiveBOMs = async (): Promise<ProductBOMHeader[]> => {
+    try {
+        const orgId = await getCurrentOrgId();
+        const { data, error } = await supabase.from('product_boms')
+            .select(`
+                *,
+                product:products(id, code, produto),
+                items:bom_items(
+                    *,
+                    material:raw_materials(*)
+                )
+            `)
+            .eq('organization_id', orgId)
+            .eq('active', true);
+
+        if (error) throw error;
+
+        return data.map((d: any) => ({
+            id: d.id,
+            organizationId: d.organization_id,
+            productId: d.product_id,
+            productCode: d.product?.code, // Helper
+            productName: d.product?.produto, // Helper
+            version: d.version,
+            active: d.active,
+            description: d.description,
+            createdAt: d.created_at,
+            items: d.items.map((i: any) => ({
+                id: i.id,
+                organizationId: i.organization_id,
+                bomId: i.bom_id,
+                materialId: i.material_id,
+                quantity: i.quantity,
+                material: i.material ? {
+                    id: i.material.id,
+                    code: i.material.code,
+                    name: i.material.name,
+                    unit: i.material.unit,
+                    currentStock: i.material.current_stock || 0,
+                    minStock: i.material.min_stock || 0,
+                    unitCost: i.material.unit_cost || 0,
+                    category: i.material.category,
+                    group: i.material.group_name
+                } : undefined
+            }))
+        }));
+    } catch (e) {
+        console.error("Error fetching all active BOMs:", e);
+        return [];
+    }
+};
+
 export const getActiveBOM = async (productId: string): Promise<ProductBOMHeader | null> => {
     try {
         const orgId = await getCurrentOrgId();
@@ -256,32 +308,7 @@ export const deleteBOMItem = async (id: string): Promise<void> => {
     await supabase.from('bom_items').delete().eq('id', id);
 };
 
-// --- LEGACY SUPPORT (Deprecate soon) ---
 
-export const fetchBOM = async (productCode: string): Promise<ProductBOM[]> => {
-    // Adapter: Try to find Active BOM and return items in legacy format
-    try {
-        const { data: product } = await supabase.from('products').select('id').eq('code', productCode).single();
-        if (!product) return [];
-
-        const activeBOM = await getActiveBOM(product.id);
-        if (activeBOM) {
-            const items = await fetchBOMItems(activeBOM.id);
-            return items.map(i => ({
-                id: i.id,
-                productCode: productCode,
-                materialId: i.materialId,
-                quantityRequired: i.quantity,
-                material: i.material
-            }));
-        }
-        return [];
-    } catch (e) { return []; }
-};
-
-export const getAllBOMs = async (): Promise<any[]> => { return []; } // Deprecated unused
-export const fetchAllBOMs = async (): Promise<any[]> => { return []; } // Deprecated stub for Kitting
-export const saveBOM = async (bom: any): Promise<void> => { throw new Error("Use new saveBOMItem method"); } // Block legacy write
 
 
 // --- SIMULATION & STRUCTURE ---
@@ -948,10 +975,19 @@ export const processStockTransaction = async (trx: Omit<InventoryTransaction, 'i
 
 export const processStockDeduction = async (entry: { productCode?: string | null, qtyOK: number, id: string }): Promise<void> => {
     if (!entry.productCode || entry.qtyOK <= 0) return;
-    const bomItems = await fetchBOM(entry.productCode);
+
+    // Resolve Product ID
+    const { data: product } = await supabase.from('products').select('id').eq('code', entry.productCode).single();
+    if (!product) return;
+
+    const activeBOM = await getActiveBOM(product.id);
+    if (!activeBOM) return;
+
+    const bomItems = await fetchBOMItems(activeBOM.id);
+
     for (const item of bomItems) {
-        if (!item.quantityRequired) continue; // Skip items with no defined qty
-        const consumed = Number(item.quantityRequired) * Number(entry.qtyOK);
+        if (!item.quantity) continue;
+        const consumed = Number(item.quantity) * Number(entry.qtyOK);
         if (isNaN(consumed) || consumed <= 0) continue;
 
         await processStockTransaction({

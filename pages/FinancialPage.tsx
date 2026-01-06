@@ -1,8 +1,9 @@
 
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { fetchProductCosts, fetchAllBOMs, saveProduct } from '../services/storage';
-import { ProductCostSummary, ProductBOM, MaterialCategory } from '../types';
+import { fetchProductCosts, saveProduct } from '../services/storage';
+import { fetchAllActiveBOMs } from '../services/inventoryService';
+import { ProductCostSummary, ProductBOMHeader, MaterialCategory } from '../types';
 import { DollarSign, Search, Loader2, Save, TrendingUp, TrendingDown, PieChart, List, X, Box, Zap, User, Hammer, ChevronLeft, ChevronRight } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
@@ -13,10 +14,10 @@ import { useAuth } from '../contexts/AuthContext';
 const FinancialPage: React.FC = () => {
     const { user } = useAuth();
     const [costData, setCostData] = useState<ProductCostSummary[]>([]);
-    const [boms, setBoms] = useState<ProductBOM[]>([]); // Keep BOMs only for details view (lighter)
+    const [boms, setBoms] = useState<ProductBOMHeader[]>([]); // Keep BOMs only for details view (lighter)
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
-    const [selectedProductCode, setSelectedProductCode] = useState<number | null>(null);
+    const [selectedProductCode, setSelectedProductCode] = useState<string | null>(null);
     const [detailsModalOpen, setDetailsModalOpen] = useState(false);
 
     // Pagination State
@@ -26,7 +27,7 @@ const FinancialPage: React.FC = () => {
     useEffect(() => {
         const loadData = async () => {
             // Now fetches pre-calculated data from DB View
-            const [costs, b] = await Promise.all([fetchProductCosts(), fetchAllBOMs()]);
+            const [costs, b] = await Promise.all([fetchProductCosts(), fetchAllActiveBOMs()]);
             setCostData(costs);
             setBoms(b); // Only needed for detailed BOM drill-down
             setLoading(false);
@@ -50,7 +51,7 @@ const FinancialPage: React.FC = () => {
 
     const filteredData = enhancedData.filter(d =>
         d.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        d.productCode.toString().includes(searchTerm)
+        d.productCode.toString().toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     // Pagination Logic
@@ -60,7 +61,7 @@ const FinancialPage: React.FC = () => {
         currentPage * itemsPerPage
     );
 
-    const handlePriceChange = async (code: number, newPrice: string) => {
+    const handlePriceChange = async (code: string, newPrice: string) => {
         const val = parseFloat(newPrice) || 0;
 
         // Update Local
@@ -96,10 +97,17 @@ const FinancialPage: React.FC = () => {
     const selectedCost = selectedProductCode ? enhancedData.find(c => c.productCode === selectedProductCode) : null;
 
     // Items for the selected product BOM (fetched separately or from cache)
-    const selectedBOMItems = selectedProductCode ? boms.filter(b => b.productCode === selectedProductCode).map(item => ({
-        ...item,
-        totalCost: (item.material?.unitCost || 0) * item.quantityRequired
-    })).sort((a, b) => b.totalCost - a.totalCost) : [];
+    const selectedBOMItems = useMemo(() => {
+        if (!selectedProductCode) return [];
+        const activeBOM = boms.find(b => b.productCode === selectedProductCode.toString());
+        if (!activeBOM || !activeBOM.items) return [];
+
+        return activeBOM.items.map(item => ({
+            ...item,
+            quantityRequired: item.quantity,
+            totalCost: (item.material?.unitCost || 0) * item.quantity
+        })).sort((a, b) => b.totalCost - a.totalCost);
+    }, [selectedProductCode, boms]);
 
     const pieData = selectedCost ? [
         { name: 'Matéria Prima', value: selectedCost.materialCost },
@@ -175,7 +183,7 @@ const FinancialPage: React.FC = () => {
                                             </span>
                                         </td>
                                         <td className="px-4 py-3 text-center">
-                                            <button
+                                            <button title="Página anterior" aria-label="Página anterior" title="Detalhes do Produto" aria-label="Detalhes do Produto"
                                                 onClick={() => setSelectedProductCode(item.productCode)}
                                                 className="text-brand-600 hover:bg-brand-50 p-1.5 rounded"
                                             >
@@ -202,7 +210,7 @@ const FinancialPage: React.FC = () => {
                                 Mostrando <b>{(currentPage - 1) * itemsPerPage + 1}</b> a <b>{Math.min(currentPage * itemsPerPage, filteredData.length)}</b> de <b>{filteredData.length}</b> itens
                             </span>
                             <div className="flex space-x-1">
-                                <button
+                                <button title="Página anterior" aria-label="Página anterior"
                                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                                     disabled={currentPage === 1}
                                     className="p-1 rounded hover:bg-slate-200 disabled:opacity-30"
@@ -212,7 +220,7 @@ const FinancialPage: React.FC = () => {
                                 <div className="px-3 py-1 bg-white border border-slate-200 rounded text-sm font-medium">
                                     {currentPage} / {totalPages}
                                 </div>
-                                <button
+                                <button title="Próxima página" aria-label="Próxima página"
                                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                                     disabled={currentPage === totalPages}
                                     className="p-1 rounded hover:bg-slate-200 disabled:opacity-30"
@@ -311,7 +319,7 @@ const FinancialPage: React.FC = () => {
                                 </h3>
                                 <p className="text-sm text-slate-500 font-mono mt-1">{selectedCost.productName}</p>
                             </div>
-                            <button onClick={() => setDetailsModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full text-slate-500">
+                            <button onClick={() => setDetailsModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full text-slate-500" title="Fechar" aria-label="Fechar">
                                 <X size={20} />
                             </button>
                         </div>

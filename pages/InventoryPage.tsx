@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { fetchMaterials, saveMaterial, deleteMaterial, processStockTransaction, fetchInventoryTransactions, fetchMaterialTransactions, formatError, renameMaterialGroup, fetchProducts, formatCurrency } from '../services/storage';
-import { fetchBOMItems, getActiveBOM } from '../services/inventoryService';
+import { fetchAllActiveBOMs } from '../services/inventoryService';
 import { calculateKittingOptions } from '../services/kittingService';
 import { RawMaterial, MaterialCategory, InventoryTransaction } from '../types';
 import { Plus, Search, Cuboid, Save, ArrowDownCircle, ArrowUpCircle, RefreshCw, Trash2, X, Box, Zap, User, Hammer, Loader2, AlertCircle, ArrowRight, Minus, History, FileText, DollarSign, BarChart3, Filter, Cpu, Layers, ChevronRight, ArrowLeft, LayoutGrid, List as ListIcon, Edit, Undo2, Info, CheckCircle2, Tag } from 'lucide-react';
@@ -384,32 +384,13 @@ const InventoryPage: React.FC = () => {
     const handleOpenKitting = async () => {
         setLoading(true);
         try {
-            const [prods, mats] = await Promise.all([
+            const [prods, mats, boms] = await Promise.all([
                 fetchProducts(),
-                fetchMaterials()
+                fetchMaterials(),
+                fetchAllActiveBOMs()
             ]);
 
-            // Fetch Active BOM for each product
-            const bomPromises = prods.map(async (p) => {
-                const header = await getActiveBOM(p.id);
-                if (!header) return null;
-                const items = await fetchBOMItems(header.id);
-                // Map to old structure expected by calculateKittingOptions for now, or update service?
-                // Updating service is better. But let's see. 
-                // calculateKittingOptions expects 'boms' array where each item has productCode.
-                // We will reconstruct a flat array of BOM items with productCode injected.
-                return items.map(i => ({
-                    ...i,
-                    productCode: p.codigo,
-                    quantityRequired: i.quantity, // Adapter
-                    materialId: i.materialId
-                }));
-            });
-
-            const bomsArrays = await Promise.all(bomPromises);
-            const flatBoms = bomsArrays.flat().filter(b => b !== null);
-
-            const options = calculateKittingOptions(prods, mats, flatBoms);
+            const options = calculateKittingOptions(prods, mats, boms);
             setKittingOptions(options);
             setKittingModalOpen(true);
         } catch (e) {

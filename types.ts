@@ -315,15 +315,6 @@ export interface RawMaterial {
   leadTime?: number; // NEW: Prazo de Entrega (Dias)
 }
 
-// DEPRECATED: Old flat structure
-export interface ProductBOM {
-  id: string;
-  productCode: string; // Legacy
-  materialId: string;
-  quantityRequired: number;
-  material?: RawMaterial;
-}
-
 // NEW: BOM Header (Versioned)
 export interface ProductBOMHeader {
   id: string;
@@ -334,6 +325,10 @@ export interface ProductBOMHeader {
   description?: string;
   createdAt?: string;
   items?: BOMItem[]; // Join
+
+  // Helpers
+  productCode?: string;
+  productName?: string;
 }
 
 // NEW: BOM Items
@@ -487,4 +482,24 @@ export interface MRPPlanItem {
   // Metadata for creation
   bomId?: string;
   routeId?: string;
+}
+
+export interface OrderStatusHistory {
+  id: string;
+  orderId: string;
+  previousStatus: ProductionOrderStatus;
+  newStatus: ProductionOrderStatus;
+  changedBy: string;
+  changedAt: string;
+}
+
+export interface WorkOrderActivity {
+  id: string;
+  workOrderId: string;
+  operationId: string;
+  operatorId: string;
+  producedQty: number;
+  rejectedQty: number;
+  materialUsed?: Record<string, any>;
+  recordedAt: string;
 }

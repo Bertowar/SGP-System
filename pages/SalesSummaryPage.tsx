@@ -1,3 +1,4 @@
+import React, { useState, useEffect, useMemo } from 'react';
 import { fetchSalesSummary, fetchDailyMovements, fetchSalesMetrics, fetchAnnualSales, SalesSummaryData, DailySalesData, AnnualSalesData } from '../services/salesService';
 import { Search, Loader2, Calendar, TrendingUp, TrendingDown, Store, Building2, Sigma, ArrowUpRight, BarChart3, List, PieChart } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ComposedChart, Bar, Line } from 'recharts';
@@ -157,7 +158,7 @@ const SalesSummaryPage: React.FC = () => {
                     <div className="flex gap-3 bg-white p-2 rounded-lg shadow-sm border border-slate-200">
                         <div className="flex items-center gap-2 px-2 border-r border-slate-100">
                             <Calendar size={16} className="text-slate-400" />
-                            <select
+                            <select title="Selecionar mês" aria-label="Selecionar mês"
                                 className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer"
                                 value={selectedMonth}
                                 onChange={(e) => setSelectedMonth(Number(e.target.value))}
@@ -166,7 +167,7 @@ const SalesSummaryPage: React.FC = () => {
                                     <option key={i + 1} value={i + 1}>{new Date(0, i).toLocaleString('pt-BR', { month: 'long' })}</option>
                                 ))}
                             </select>
-                            <select
+                            <select title="Selecionar ano" aria-label="Selecionar ano"
                                 className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer"
                                 value={selectedYear}
                                 onChange={(e) => setSelectedYear(Number(e.target.value))}

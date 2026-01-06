@@ -109,7 +109,7 @@ const DetailsModal: React.FC<DetailsModalProps> = ({ isOpen, onClose, group, pro
                         <h3 className="text-lg font-bold text-slate-800">Detalhes do Apontamento</h3>
                         <p className="text-sm text-slate-500">Máquina: <b>{group.machineId}</b> • Data: {new Date(group.date).toLocaleDateString()}</p>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500"><X size={20} /></button>
+                    <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500" title="Fechar Detalhes" aria-label="Fechar Detalhes"><X size={20} /></button>
                 </div>
 
                 <div className="overflow-y-auto p-0">
@@ -171,8 +171,8 @@ const DetailsModal: React.FC<DetailsModalProps> = ({ isOpen, onClose, group, pro
                                         </td>
                                         <td className="px-6 py-3 text-right">
                                             <div className="flex justify-end gap-2">
-                                                <button onClick={() => { onClose(); onEdit(e); }} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Edit size={16} /></button>
-                                                <button onClick={() => { onDelete(e); }} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button>
+                                                <button onClick={() => { onClose(); onEdit(e); }} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Editar Apontamento" aria-label="Editar Apontamento"><Edit size={16} /></button>
+                                                <button onClick={() => { onDelete(e); }} className="p-1.5 text-red-600 hover:bg-red-50 rounded" title="Excluir Apontamento" aria-label="Excluir Apontamento"><Trash2 size={16} /></button>
                                             </div>
                                         </td>
                                     </tr>
@@ -488,7 +488,7 @@ const ProductionList: React.FC = () => {
                         <p className="font-bold">Erro na operação</p>
                         <p className="text-sm">{errorMessage}</p>
                     </div>
-                    <button onClick={() => setErrorMessage(null)} className="ml-auto text-red-500 hover:text-red-700"><X size={18} /></button>
+                    <button onClick={() => setErrorMessage(null)} className="ml-auto text-red-500 hover:text-red-700" title="Fechar erro" aria-label="Fechar erro"><X size={18} /></button>
                 </div>
             )}
 
@@ -505,6 +505,8 @@ const ProductionList: React.FC = () => {
                             value={date}
                             onChange={handleDateChange}
                             max={today}
+                            title="Seletor de Data"
+                            aria-label="Seletor de Data"
                         />
                         <div className="absolute right-1 text-slate-400 pointer-events-none">
                             <Calendar size={14} />
@@ -530,6 +532,8 @@ const ProductionList: React.FC = () => {
                                 setSelectedMachine('');
                                 setSelectedOperator('');
                             }}
+                            title="Filtrar por Setor"
+                            aria-label="Filtrar por Setor"
                         >
                             <option value="">Todos</option>
                             {sectors.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
@@ -549,6 +553,8 @@ const ProductionList: React.FC = () => {
                             className="h-[32px] px-2 bg-white border border-slate-200 rounded-md text-xs font-medium text-slate-700 focus:ring-2 focus:ring-brand-500 outline-none w-[80px] md:w-[110px]"
                             value={selectedMachine}
                             onChange={e => setSelectedMachine(e.target.value)}
+                            title="Filtrar por Máquina"
+                            aria-label="Filtrar por Máquina"
                         >
                             <option value="">Todas</option>
                             {availableMachines.map(m => <option key={m.code} value={m.code}>{m.name}</option>)}
@@ -562,6 +568,8 @@ const ProductionList: React.FC = () => {
                             className="h-[32px] px-2 bg-white border border-slate-200 rounded-md text-xs font-medium text-slate-700 focus:ring-2 focus:ring-brand-500 outline-none w-[80px] md:w-[110px]"
                             value={selectedOperator}
                             onChange={e => setSelectedOperator(e.target.value)}
+                            title="Filtrar por Operador"
+                            aria-label="Filtrar por Operador"
                         >
                             <option value="">Todos</option>
                             {availableOperators.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}

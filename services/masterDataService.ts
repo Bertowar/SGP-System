@@ -186,7 +186,6 @@ export const fetchProducts = async (): Promise<Product[]> => {
         scrapMaterialId: d.scrap_recycling_material_id,
         compatibleMachines: relatedMachines,
         currentStock: d.current_stock || 0,
-        currentStock: d.current_stock || 0,
         productTypeId: d.product_type_id, // NEW
         extrusionMix: d.extrusion_mix // NEW
       };

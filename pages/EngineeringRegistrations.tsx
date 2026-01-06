@@ -6,7 +6,7 @@ import {
     saveProduct, deleteProduct, deleteMachine, saveOperator, deleteOperator, saveDowntimeType, deleteDowntimeType, saveScrapReason, deleteScrapReason, saveProductCategory, deleteProductCategory, saveSector, deleteSector, saveWorkShift, deleteWorkShift, saveProductType, deleteProductType, formatError
 } from '../services/storage';
 import { saveMachine } from '../services/masterDataService';
-import { fetchBOM } from '../services/inventoryService'; // NEW: Import BOM service
+import { fetchBOMItems, getActiveBOM } from '../services/inventoryService';
 import { Product, Operator, Machine, DowntimeType, MachineSector, RawMaterial, ScrapReason, ProductCategory, Sector, WorkShift, ProductTypeDefinition } from '../types';
 import { Trash2, Edit, Save, Package, Users, Cpu, Timer, AlertCircle, X, Plus, Loader2, AlertTriangle, Layers, Grid, Clock, CheckSquare, RefreshCw, Info, CheckCircle, Boxes, Lightbulb, Workflow, Box } from 'lucide-react'; // Added Workflow and Box
 import { Input } from '../components/Input';
@@ -99,7 +99,12 @@ const SimpleTable = <T,>({ data, columns, onDelete, FormComponent, onSaveSuccess
                             <h3 className="text-lg font-bold text-slate-800">
                                 {editingItem ? 'Editar Registro' : 'Novo Registro'}
                             </h3>
-                            <button onClick={handleClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
+                            <button
+                                onClick={handleClose}
+                                className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"
+                                title="Fechar"
+                                aria-label="Fechar"
+                            >
                                 <X size={24} />
                             </button>
                         </div>
@@ -246,16 +251,31 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
     }, []);
 
     // NEW: Calculate Cost from BOM
-    const calculateCost = async (prodCode: string) => {
-        if (!prodCode) return;
+    const calculateCost = async (prodId: string, prodCode?: string) => {
         setIsCalculating(true);
         try {
-            const bom = await fetchBOM(prodCode);
-            if (bom && bom.length > 0) {
-                const total = bom.reduce((acc, item) => {
+            let targetId = prodId;
+
+            // If we don't have an ID (e.g. creating via code but not saved yet), we can't fetch BOM efficiently 
+            // unless we resolve code to ID first. But BOMs require Products to exist.
+            // So this feature mostly works for existing products.
+            if (!targetId && prodCode) {
+                // Try to resolve code to ID
+                const pList = await fetchProducts();
+                const found = pList.find(p => p.codigo.toString() === prodCode.toString());
+                if (found) targetId = found.id;
+            }
+
+            if (!targetId) return; // Can't calculate without ID
+
+            const header = await getActiveBOM(targetId);
+            if (header) {
+                const items = await fetchBOMItems(header.id);
+                const total = items.reduce((acc, item) => {
                     const cost = item.material?.unitCost || 0;
-                    return acc + (item.quantityRequired * cost);
+                    return acc + (item.quantity * cost);
                 }, 0);
+
                 if (total > 0) {
                     setCost(total.toFixed(4));
                 }
@@ -284,7 +304,7 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
             setCompMachines(initialData.compatibleMachines || []);
 
             // Auto-Calculate Cost from BOM if editing
-            calculateCost(initialData.codigo);
+            calculateCost(initialData.id || '', initialData.codigo.toString());
 
             // Set Items Per Hour and Cycle Time
             setItemsPerHour(initialData.itemsPerHour?.toString() || '0');
@@ -380,7 +400,7 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                 {!!initialData && (
                     <button
                         type="button"
-                        onClick={() => calculateCost(code)}
+                        onClick={() => calculateCost(initialData?.id || '', code)}
                         className="absolute right-2 top-8 p-1 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded"
                         title="Recalcular da Ficha Técnica"
                     >
@@ -429,6 +449,8 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
                     className="px-3 py-2 border rounded-lg bg-white"
+                    title="Categoria do Produto"
+                    aria-label="Categoria do Produto"
                 >
                     {categories.map(cat => (
                         <option key={cat.id} value={cat.name}>{cat.name}</option>
@@ -445,6 +467,8 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                     onChange={handleTypeChange}
                     className="px-3 py-2 border rounded-lg bg-white"
                     required
+                    title="Tipo de Produto"
+                    aria-label="Tipo de Produto"
                 >
                     <option value="">Selecione...</option>
                     {productTypes.map(pt => (
@@ -462,6 +486,8 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                     value={unit}
                     onChange={(e) => setUnit(e.target.value)}
                     className="px-3 py-2 border rounded-lg bg-white"
+                    title="Unidade de Medida"
+                    aria-label="Unidade de Medida"
                 >
                     <option value="un">Unidade (un)</option>
                     <option value="kg">Quilo (kg)</option>
@@ -476,6 +502,8 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                     value={scrapId}
                     onChange={(e) => setScrapId(e.target.value)}
                     className="px-3 py-2 border rounded-lg bg-white text-xs"
+                    title="Material de Reciclagem"
+                    aria-label="Material de Reciclagem"
                 >
                     <option value="">- Nenhuma recuperação -</option>
                     {materials.filter(m => m.category === 'raw_material' || m.category === 'return' || m.category === 'scrap' || m.name.toLowerCase().includes('apara')).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -498,6 +526,8 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                                 ? 'bg-brand-100 text-brand-700 border-brand-300 font-bold'
                                 : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
                                 }`}
+                            title={`Alternar compatibilidade com máquina ${m.code}`}
+                            aria-label={`Alternar compatibilidade com máquina ${m.code}`}
                         >
                             {m.code}
                         </button>
@@ -519,6 +549,8 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                                 <select
                                     className="w-24 px-2 py-1.5 text-xs border rounded bg-white"
                                     value={item.type}
+                                    title="Tipo de Material do Mix"
+                                    aria-label="Tipo de Material do Mix"
                                     onChange={e => {
                                         const newMix = [...mixItems];
                                         newMix[idx].type = e.target.value;
@@ -533,6 +565,8 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                                 <select
                                     className="flex-1 px-2 py-1.5 text-xs border rounded bg-white"
                                     value={item.subType}
+                                    title="Cor/Subtipo do Material"
+                                    aria-label="Cor/Subtipo do Material"
                                     onChange={e => {
                                         const newMix = [...mixItems];
                                         newMix[idx].subType = e.target.value;
@@ -570,6 +604,8 @@ const ProductForm: React.FC<{ onSave: () => void; initialData?: Product }> = ({ 
                 type="submit"
                 disabled={isSubmitting}
                 className="md:col-span-4 bg-green-600 text-white py-3 rounded-lg flex items-center justify-center font-bold hover:bg-green-700 disabled:opacity-50 mt-4"
+                title="Salvar Produto"
+                aria-label="Salvar Produto"
             >
                 {isSubmitting ? <Loader2 className="animate-spin mr-2" /> : <Save size={18} className="mr-2" />}
                 {isSubmitting ? 'Salvando...' : 'Salvar Produto'}
@@ -645,12 +681,16 @@ const OperatorForm: React.FC<{ onSave: () => void; initialData?: Operator }> = (
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4">
             <Input label="Nome Completo" value={name} onChange={e => setName(e.target.value)} required className="md:col-span-2" />
 
+// ... OperatorForm ...
+
             <div className="flex flex-col">
                 <label className="text-sm font-semibold text-slate-700">Setor</label>
                 <select
                     value={sector}
                     onChange={(e) => setSector(e.target.value)}
                     className="px-3 py-2 border rounded-lg bg-white"
+                    title="Setor do Operador"
+                    aria-label="Setor do Operador"
                 >
                     <option value="">Indefinido</option>
                     {sectorsList.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
@@ -663,6 +703,8 @@ const OperatorForm: React.FC<{ onSave: () => void; initialData?: Operator }> = (
                     value={shiftId}
                     onChange={(e) => setShiftId(e.target.value)}
                     className="px-3 py-2 border rounded-lg bg-white"
+                    title="Turno Padrão"
+                    aria-label="Turno Padrão"
                 >
                     <option value="">Todos / Flexível</option>
                     {shifts.map(s => <option key={s.id} value={s.id}>{s.name} ({s.startTime}-{s.endTime})</option>)}
@@ -743,6 +785,8 @@ const DowntimeForm: React.FC<{ onSave: () => void; initialData?: DowntimeType }>
                     value={sector}
                     onChange={e => setSector(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500"
+                    title="Setor da Parada"
+                    aria-label="Setor da Parada"
                 >
                     <option value="">Global (Todos)</option>
                     {sectors.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -755,12 +799,14 @@ const DowntimeForm: React.FC<{ onSave: () => void; initialData?: DowntimeType }>
                     checked={exempt}
                     onChange={e => setExempt(e.target.checked)}
                     className="w-4 h-4 text-brand-600 rounded focus:ring-brand-500"
+                    title="Isentar Operador"
+                    aria-label="Isentar Operador"
                 />
                 <label htmlFor="exempt_op" className="ml-2 text-sm font-bold text-slate-700 cursor-pointer">
                     Isenta Operador?
                 </label>
             </div>
-            <button type="submit" className="w-full md:w-auto mb-[2px] px-4 py-2 bg-green-600 text-white rounded-lg flex items-center justify-center">
+            <button type="submit" className="w-full md:w-auto mb-[2px] px-4 py-2 bg-green-600 text-white rounded-lg flex items-center justify-center" title="Salvar Parada" aria-label="Salvar Parada">
                 <Save size={18} className="mr-2 md:mr-0" />
             </button>
         </form>
@@ -803,12 +849,14 @@ const ScrapForm: React.FC<{ onSave: () => void; initialData?: ScrapReason }> = (
                     value={sector}
                     onChange={e => setSector(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500"
+                    title="Setor do Refugo"
+                    aria-label="Setor do Refugo"
                 >
                     <option value="">Global (Todos)</option>
                     {sectors.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
             </div>
-            <button type="submit" className="w-full md:w-auto mb-[2px] px-4 py-2 bg-green-600 text-white rounded-lg flex items-center justify-center">
+            <button type="submit" className="w-full md:w-auto mb-[2px] px-4 py-2 bg-green-600 text-white rounded-lg flex items-center justify-center" title="Salvar Refugo" aria-label="Salvar Refugo">
                 <Save size={18} />
             </button>
         </form>
@@ -838,6 +886,8 @@ const ProductTypeForm: React.FC<{ onSave: () => void; initialData?: ProductTypeD
                     onChange={e => setName(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500"
                     required
+                    placeholder="Nome do Tipo de Produto"
+                    title="Nome do Tipo de Produto"
                 />
             </div>
             <div className="md:w-64">
@@ -847,13 +897,15 @@ const ProductTypeForm: React.FC<{ onSave: () => void; initialData?: ProductTypeD
                     onChange={e => setClassification(e.target.value as any)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500"
                     required
+                    title="Classificação do Sistema"
+                    aria-label="Classificação do Sistema"
                 >
                     <option value="FINISHED">Produto Acabado</option>
                     <option value="INTERMEDIATE">Bobina / Intermediário</option>
                     <option value="COMPONENT">Componente / Matéria Prima</option>
                 </select>
             </div>
-            <button type="submit" className="w-full md:w-auto mb-[2px] px-4 py-2 bg-green-600 text-white rounded-lg flex items-center justify-center">
+            <button type="submit" className="w-full md:w-auto mb-[2px] px-4 py-2 bg-green-600 text-white rounded-lg flex items-center justify-center" title="Salvar Tipo" aria-label="Salvar Tipo">
                 <Save size={18} className="mr-2 md:mr-0" />
             </button>
         </form>
@@ -877,7 +929,7 @@ const CategoryForm: React.FC<{ onSave: () => void; initialData?: ProductCategory
             <div className="flex-1">
                 <Input label="Nome da Categoria" value={name} onChange={e => setName(e.target.value)} required className="w-full" placeholder="Ex: KIT" />
             </div>
-            <button type="submit" className="mb-[2px] px-4 py-2 bg-green-600 text-white rounded-lg"><Save size={18} /></button>
+            <button type="submit" className="mb-[2px] px-4 py-2 bg-green-600 text-white rounded-lg" title="Salvar Categoria" aria-label="Salvar Categoria"><Save size={18} /></button>
         </form>
     );
 };
@@ -907,6 +959,7 @@ const SectorForm: React.FC<{ onSave: () => void; initialData?: Sector }> = ({ on
                 <Input label="Nome do Setor" value={name} onChange={e => setName(e.target.value)} required className="w-full" placeholder="Ex: Termoformagem" />
             </div>
             {/* NEW: Checkbox for Productive Sector */}
+// ... SectorForm ...
             <div className="flex items-center h-10 px-3 border border-slate-200 rounded-lg bg-slate-50 mb-[2px]">
                 <input
                     type="checkbox"
@@ -919,7 +972,7 @@ const SectorForm: React.FC<{ onSave: () => void; initialData?: Sector }> = ({ on
                     Setor Produtivo
                 </label>
             </div>
-            <button type="submit" className="mb-[2px] px-4 py-2 bg-green-600 text-white rounded-lg"><Save size={18} /></button>
+            <button type="submit" className="mb-[2px] px-4 py-2 bg-green-600 text-white rounded-lg" title="Salvar Setor" aria-label="Salvar Setor"><Save size={18} /></button>
         </form>
     );
 };
@@ -975,6 +1028,8 @@ const WorkShiftForm: React.FC<{ onSave: () => void; initialData?: WorkShift }> =
                     value={sector}
                     onChange={(e) => setSector(e.target.value)}
                     className="px-3 py-2 border rounded-lg bg-white h-[42px]"
+                    title="Setor do Turno"
+                    aria-label="Setor do Turno"
                 >
                     <option value="">Global / Todos</option>
                     {sectorsList.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
@@ -1055,10 +1110,11 @@ const MachineForm: React.FC<{ onSave: () => void; initialData?: Machine }> = ({ 
             <div className="col-span-12 md:col-span-2">
                 <Input label="Cód. Máquina" value={code} onChange={e => setCode(e.target.value)} required placeholder="Ex: 001" />
             </div>
+// ... MachineForm ...
             <div className="col-span-12 md:col-span-4">
                 <div className="flex flex-col">
                     <label className="text-sm font-semibold text-slate-700 mb-1">Setor</label>
-                    <select value={sector} onChange={(e) => setSector(e.target.value as any)} className="px-3 py-2.5 border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-brand-500 w-full">
+                    <select value={sector} onChange={(e) => setSector(e.target.value as any)} className="px-3 py-2.5 border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-brand-500 w-full" title="Setor da Máquina" aria-label="Setor da Máquina">
                         {sectorsList.map(s => (
                             <option key={s.id} value={s.name}>{s.name}</option>
                         ))}
@@ -1089,6 +1145,8 @@ const MachineForm: React.FC<{ onSave: () => void; initialData?: Machine }> = ({ 
                         value={unit}
                         onChange={e => setUnit(e.target.value)}
                         className="w-24 px-2 py-2 border border-slate-300 rounded-lg bg-slate-50 text-sm focus:ring-2 focus:ring-brand-500"
+                        title="Unidade de Capacidade"
+                        aria-label="Unidade de Capacidade"
                     >
                         <option value="kg/h">kg/h</option>
                         <option value="un/h">un/h</option>
@@ -1445,20 +1503,7 @@ const EngineeringRegistrations: React.FC = () => {
                                 ? <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">Produtivo</span>
                                 : <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600">Apoio / Geral</span>
                         },
-                        {
-                            header: 'Ações',
-                            render: (p: Product) => (
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => setViewStructure(p.id || p.codigo)} // Prefer ID, fallback to code
-                                        className="p-1.5 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded transition-colors"
-                                        title="Ver Estrutura / Custos"
-                                    >
-                                        <Box size={16} />
-                                    </button>
-                                </div>
-                            )
-                        }
+
                     ]}
                     onDelete={(s) => openDeleteModal(s, 'setor')}
                     FormComponent={SectorForm}
@@ -1630,13 +1675,15 @@ const EngineeringRegistrations: React.FC = () => {
                 />}
             </div>
 
-            {/* Guided Mode Help Modal */}
+// ... Help Modal ...
             {isGuidedMode && showHelpModal && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] p-4 animate-in fade-in duration-200">
                     <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 relative animate-in zoom-in-95 slide-in-from-bottom-4 duration-300 border border-slate-100">
                         <button
                             onClick={() => setShowHelpModal(false)}
                             className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-2 rounded-full transition-colors"
+                            title="Fechar Ajuda"
+                            aria-label="Fechar Ajuda"
                         >
                             <X size={20} />
                         </button>

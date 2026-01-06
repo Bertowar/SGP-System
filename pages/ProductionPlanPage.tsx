@@ -5,7 +5,7 @@ import { fetchProductionOrders, saveProductionOrder, deleteProductionOrder, crea
 import { fetchProducts, fetchMachines, fetchSettings } from '../services/masterDataService';
 import { formatError, formatNumber } from '../services/utils';
 import { ProductionOrder, Product, Machine, AppSettings, RawMaterial } from '../types';
-import { fetchMaterials, fetchBOM, calculateMRP } from '../services/inventoryService';
+import { fetchMaterials, calculateMRP } from '../services/inventoryService';
 import { ClipboardList, Plus, Calendar, User, Package, Trash2, Edit, Save, X, Search, Filter, CheckCircle2, AlertCircle, Clock, Loader2, Calculator, ArrowRight, Zap, Info, FlaskConical, AlertTriangle, ChevronRight, ChevronDown, ShoppingCart, Factory } from 'lucide-react';
 import { MRPPlanItem } from '../types';
 import { Input, Textarea } from '../components/Input';

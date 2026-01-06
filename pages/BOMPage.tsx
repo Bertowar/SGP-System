@@ -221,6 +221,8 @@ const BOMPage: React.FC = () => {
                                             onChange={e => setSelectedVersionId(e.target.value)}
                                             className="appearance-none bg-slate-100 border border-slate-300 text-slate-700 py-1.5 pl-3 pr-8 rounded-md text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:border-transparent cursor-pointer hover:bg-slate-200 transition-colors"
                                             disabled={versions.length === 0}
+                                            title="Versão da Ficha Técnica"
+                                            aria-label="Versão da Ficha Técnica"
                                         >
                                             {versions.length === 0 && <option value="">Sem versões</option>}
                                             {versions.map(v => (
@@ -233,6 +235,8 @@ const BOMPage: React.FC = () => {
                                             <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
                                         </div>
                                     </div>
+
+// ... Skip lines to next select ...
 
                                     {versions.length === 0 ? (
                                         <button onClick={handleCreateVersion} className="bg-brand-600 text-white px-3 py-1.5 rounded-md text-sm font-bold hover:bg-brand-700 flex items-center">
@@ -350,6 +354,8 @@ const BOMPage: React.FC = () => {
                                             onChange={e => setFormMatId(e.target.value)}
                                             required
                                             disabled={!!isEditingId} // Disable resource change on edit
+                                            title="Material ou Recurso"
+                                            aria-label="Material ou Recurso"
                                         >
                                             <option value="">Selecione...</option>
                                             {materials.map(m => (

@@ -1,18 +1,47 @@
-export const calculateKittingOptions = (products: any[], materials: any[], boms: any[]) => {
-    // Logic to find which products have BOMs, and calculate max possible yield
-    return products.filter(p => {
-        const productBOM = boms.filter(b => b.productCode === p.code);
-        return productBOM.length > 0;
-    }).map(p => {
-        const productBOM = boms.filter(b => b.productCode === p.code);
+import { Product, RawMaterial, ProductBOMHeader } from '../types';
+
+export const calculateKittingOptions = (products: Product[], materials: RawMaterial[], boms: ProductBOMHeader[]) => {
+    // boms is now a list of Headers with Items included
+    return products.map(p => {
+        // Find the active BOM for this product
+        const activeBOM = boms.find(b => b.productId === p.id);
+
+        if (!activeBOM || !activeBOM.items || activeBOM.items.length === 0) {
+            return null; // Product has no BOM or no items
+        }
+
         let maxKits = Infinity;
-        const details = productBOM.map(bom => {
-            const material = materials.find(m => m.id === bom.materialId);
+
+        const details = activeBOM.items.map(bomItem => {
+            const material = materials.find(m => m.id === bomItem.materialId);
             const currentStock = material?.currentStock || 0;
-            const possible = Math.floor(currentStock / bom.quantityRequired);
+            const requiredPerUnit = bomItem.quantity;
+
+            // Avoid division by zero
+            if (requiredPerUnit <= 0) return {
+                materialId: bomItem.materialId,
+                name: material?.name || 'Unknown',
+                required: requiredPerUnit,
+                stock: currentStock,
+                possible: Infinity
+            };
+
+            const possible = Math.floor(currentStock / requiredPerUnit);
             if (possible < maxKits) maxKits = possible;
-            return { materialId: material?.id, name: material?.name, required: bom.quantityRequired, stock: currentStock, possible };
+
+            return {
+                materialId: bomItem.materialId,
+                name: material?.name,
+                required: requiredPerUnit,
+                stock: currentStock,
+                possible
+            };
         });
-        return { product: p, maxKits: maxKits === Infinity ? 0 : maxKits, components: details };
-    }).filter(k => k.maxKits > 0); // Only show kits we can actually build? Or show all? Show all better.
+
+        // If maxKits implies we can make 0, we still return the object so user sees they can't make it (limit 0)
+        // But if maxKits is still Infinity (no items required?), set to 0? Handled above with length check.
+        if (maxKits === Infinity) maxKits = 0;
+
+        return { product: p, maxKits, components: details };
+    }).filter(k => k !== null); // Remove products without BOMs
 };

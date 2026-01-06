@@ -98,7 +98,7 @@ const LegacyImportPage: React.FC = () => {
                 // Determine consolidated ID (prefer item's own logic if valid, else lookup)
                 let idConsolidado = (item.nobreId && item.nobreId !== '-') ? item.nobreId : null;
                 if (!idConsolidado) {
-                    idConsolidado = referenceToConsolidatedIdMap.get(item.reference) || null;
+                    idConsolidado = consolidatedIdMap.get(item.reference) || null;
                 }
 
                 return {
@@ -609,44 +609,23 @@ const LegacyImportPage: React.FC = () => {
     const currentSummary = activeTab === 'A' ? summaryA : summaryB;
     const filteredReport = filterData(currentReport);
     const filteredConsolidated = filterConsolidated(consolidatedData);
+    const consolidatedIdMap = new Map<string, string>(); // Simplified for debug
 
-    // Optimization for Preview Modal: Map Reference -> Consolidated ID
-    const referenceToConsolidatedIdMap = useMemo(() => {
-        const map = new Map<string, string>();
-
-        // 1. Populate from Consolidated Data (NOBRE candidates)
-        consolidatedData.forEach(item => {
-            if (item.category === 'NOBRE') {
-                map.set(item.reference, item.id);
-            }
-        });
-
-        // 2. Override with System Products (Priority)
-        systemProducts.forEach(p => {
-            // Check for valid product name and ensure it matches the reference style
-            if (p.produto) {
-                map.set(p.produto, p.codigo.toString());
-            }
-        });
-
-        return map;
-    }, [consolidatedData, systemProducts]);
-
-    return (
-        <div className="space-y-6 pb-20 animate-in fade-in">
-            {/* Header */}
-            <div className="flex justify-between items-center">
-                <div>
-                    <button onClick={() => navigate('/logistics')} className="text-slate-500 hover:text-brand-600 flex items-center mb-1 text-sm font-bold transition-colors">
-                        <ArrowLeft size={16} className="mr-1" /> Voltar para Logística
-                    </button>
-                    <h2 className="text-2xl font-bold text-slate-800">Conferência Matriz vs Filial</h2>
-                    <p className="text-slate-500">Importação e consolidação de relatórios de venda.</p>
-                </div>
+    return <div className="space-y-6 pb-20 animate-in fade-in">
+        {/* Header */}
+        <div className="flex justify-between items-center">
+            <div>
+                <button onClick={() => navigate('/logistics')} className="text-slate-500 hover:text-brand-600 flex items-center mb-1 text-sm font-bold transition-colors">
+                    <ArrowLeft size={16} className="mr-1" /> Voltar para Logística
+                </button>
+                <h2 className="text-2xl font-bold text-slate-800">Conferência Matriz vs Filial</h2>
+                <p className="text-slate-500">Importação e consolidação de relatórios de venda.</p>
             </div>
+        </div>
 
-            {/* DIVERGENCE ALERT POPUP */}
-            {divergenceAlert && (
+        {/* DIVERGENCE ALERT POPUP */}
+        {
+            divergenceAlert && (
                 <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-md animate-in zoom-in-95">
                     <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden border-2 border-red-500">
                         <div className="bg-red-50 p-6 flex flex-col items-center text-center">
@@ -663,425 +642,427 @@ const LegacyImportPage: React.FC = () => {
                         </div>
                     </div>
                 </div>
-            )}
+            )
+        }
 
-            {/* Main Card */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-h-[600px] flex flex-col">
+        {/* Main Card */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-h-[600px] flex flex-col">
 
-                {/* Tabs */}
-                <div className="flex border-b border-slate-200">
-                    <button onClick={() => { setActiveTab('A'); setFilters({ id: '', ref: '', line: '', origin: '' }); }} className={`flex-1 py-3 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTab === 'A' ? 'border-brand-600 bg-brand-50/50' : 'border-transparent hover:bg-slate-50'}`}>
-                        <div className={`flex items-center font-bold text-sm ${activeTab === 'A' ? 'text-brand-600' : 'text-slate-500'}`}>
-                            <Building2 size={18} className="mr-2" /> MATRIZ
-                            {reportA.length > 0 && <span className="ml-2 bg-brand-200 text-brand-800 text-[10px] px-2 py-0.5 rounded-full">{reportA.length}</span>}
-                        </div>
-                        {summaryA?.identity && <span className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-sm animate-in zoom-in ${activeTab === 'A' ? 'text-white bg-brand-600' : 'text-slate-300 bg-slate-100'}`}>{summaryA.identity}</span>}
-                    </button>
-                    <div className="w-px bg-slate-200"></div>
-                    <button onClick={() => { setActiveTab('B'); setFilters({ id: '', ref: '', line: '', origin: '' }); }} className={`flex-1 py-3 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTab === 'B' ? 'border-purple-600 bg-purple-50/50' : 'border-transparent hover:bg-slate-50'}`}>
-                        <div className={`flex items-center font-bold text-sm ${activeTab === 'B' ? 'text-purple-600' : 'text-slate-500'}`}>
-                            <Store size={18} className="mr-2" /> FILIAL
-                            {reportB.length > 0 && <span className="ml-2 bg-purple-200 text-purple-800 text-[10px] px-2 py-0.5 rounded-full">{reportB.length}</span>}
-                        </div>
-                        {summaryB?.identity && <span className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-sm animate-in zoom-in ${activeTab === 'B' ? 'text-white bg-purple-600' : 'text-slate-300 bg-slate-100'}`}>{summaryB.identity}</span>}
-                    </button>
-                    <div className="w-px bg-slate-200"></div>
-                    <button onClick={() => { setActiveTab('C'); setFilters({ id: '', ref: '', line: '', origin: '' }); }} className={`flex-1 py-3 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTab === 'C' ? 'border-blue-600 bg-blue-50/50' : 'border-transparent hover:bg-slate-50'}`}>
-                        <div className={`flex items-center font-bold text-sm ${activeTab === 'C' ? 'text-blue-600' : 'text-slate-500'}`}>
-                            <Sigma size={18} className="mr-2" /> CONSOLIDADO
-                            {consolidatedData.length > 0 && <span className="ml-2 bg-blue-200 text-blue-800 text-[10px] px-2 py-0.5 rounded-full">{consolidatedData.length}</span>}
-                        </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-sm ${activeTab === 'C' ? 'text-white bg-blue-600' : 'text-slate-300 bg-slate-100'}`}>MATRIZ + FILIAL</span>
-                    </button>
-                    <div className="w-px bg-slate-200"></div>
-                    <button onClick={() => { setActiveTab('D'); setFilters({ id: '', ref: '', line: '', origin: '' }); }} className={`flex-1 py-3 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTab === 'D' ? 'border-green-600 bg-green-50/50' : 'border-transparent hover:bg-slate-50'}`}>
-                        <div className={`flex items-center font-bold text-sm ${activeTab === 'D' ? 'text-green-600' : 'text-slate-500'}`}>
-                            <Package size={18} className="mr-2" /> RESUMO PRODUTOS
-                        </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-sm ${activeTab === 'D' ? 'text-white bg-green-600' : 'text-slate-300 bg-slate-100'}`}>AGRUPADO</span>
-                    </button>
-                </div>
-
-                {/* Toolbar */}
-                <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
-                    <div className="flex items-center gap-4 w-full md:w-auto">
-                        {(activeTab === 'A' || activeTab === 'B') ? (
-                            <>
-                                {currentSummary.fileName ? (
-                                    <div className="flex flex-col">
-                                        <span className="text-[10px] font-bold uppercase text-slate-400">Arquivo</span>
-                                        <span className="font-mono text-sm font-bold text-slate-700">{currentSummary.fileName}</span>
-                                    </div>
-                                ) : (
-                                    <span className="text-sm text-slate-400 italic flex items-center"><FileText size={16} className="mr-2" /> Nenhum arquivo.</span>
-                                )}
-                                {currentSummary.period && (
-                                    <>
-                                        <div className="hidden md:block w-px h-8 bg-slate-300 mx-2"></div>
-                                        <div className="flex flex-col">
-                                            <span className="text-[10px] font-bold uppercase text-slate-400 flex items-center"><Calendar size={10} className="mr-1" /> Período</span>
-                                            <span className="font-mono text-sm font-bold text-brand-700">{currentSummary.period}</span>
-                                        </div>
-                                    </>
-                                )}
-                            </>
-                        ) : (
-                            <div className="flex items-center gap-4">
-                                <span className="text-sm font-bold text-slate-600 flex items-center bg-white px-3 py-1.5 rounded border border-slate-200">
-                                    <Layers size={16} className="mr-2 text-blue-500" />
-                                    {activeTab === 'C' ? 'Total Itens:' : 'Total Produtos:'} <b className="ml-1 text-slate-800">{activeTab === 'C' ? consolidatedSummary.count : productSummaryData.length}</b>
-                                </span>
-                                {selectedCategoryFilter && activeTab === 'C' && (
-                                    <span className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-full animate-in fade-in">
-                                        <Filter size={12} />
-                                        Filtro: {selectedCategoryFilter}
-                                        <button onClick={() => setSelectedCategoryFilter(null)} className="ml-1 hover:text-red-300"><Trash2 size={12} /></button>
-                                    </span>
-                                )}
-                                {activeTab === 'C' && consolidatedData.length > 0 && (
-                                    <button
-                                        onClick={() => setShowPreviewModal(true)}
-                                        className="ml-2 flex items-center px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm transition-all"
-                                    >
-                                        <Database size={14} className="mr-1.5" />
-                                        Pré-visualizar Banco
-                                    </button>
-                                )}
-                            </div>
-                        )}
+            {/* Tabs */}
+            <div className="flex border-b border-slate-200">
+                <button onClick={() => { setActiveTab('A'); setFilters({ id: '', ref: '', line: '', origin: '' }); }} className={`flex-1 py-3 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTab === 'A' ? 'border-brand-600 bg-brand-50/50' : 'border-transparent hover:bg-slate-50'}`}>
+                    <div className={`flex items-center font-bold text-sm ${activeTab === 'A' ? 'text-brand-600' : 'text-slate-500'}`}>
+                        <Building2 size={18} className="mr-2" /> MATRIZ
+                        {reportA.length > 0 && <span className="ml-2 bg-brand-200 text-brand-800 text-[10px] px-2 py-0.5 rounded-full">{reportA.length}</span>}
                     </div>
-
-                    <div className="flex gap-2 w-full md:w-auto justify-end">
-                        {(activeTab === 'A' || activeTab === 'B') && (
-                            <>
-                                <label className={`cursor-pointer text-white px-4 py-2 rounded-lg font-bold shadow-sm flex items-center transition-all ${currentReport.length > 0 ? 'bg-slate-300 cursor-not-allowed opacity-70' : (activeTab === 'A' ? 'bg-brand-600 hover:bg-brand-700 active:scale-95' : 'bg-purple-600 hover:bg-purple-700 active:scale-95')}`}>
-                                    <Upload size={18} className="mr-2" />
-                                    {activeTab === 'A' ? 'Carregar Matriz' : 'Carregar Filial'}
-                                    <input type="file" accept=".txt,.csv" className="hidden" onChange={handleFileUpload} disabled={currentReport.length > 0} />
-                                </label>
-                                {currentReport.length > 0 && (
-                                    <button onClick={handleClear} className="p-2 border border-slate-300 bg-white rounded-lg hover:bg-red-50 hover:text-red-600 text-slate-500 transition-colors" title="Limpar"><Trash2 size={18} /></button>
-                                )}
-                            </>
-                        )}
+                    {summaryA?.identity && <span className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-sm animate-in zoom-in ${activeTab === 'A' ? 'text-white bg-brand-600' : 'text-slate-300 bg-slate-100'}`}>{summaryA.identity}</span>}
+                </button>
+                <div className="w-px bg-slate-200"></div>
+                <button onClick={() => { setActiveTab('B'); setFilters({ id: '', ref: '', line: '', origin: '' }); }} className={`flex-1 py-3 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTab === 'B' ? 'border-purple-600 bg-purple-50/50' : 'border-transparent hover:bg-slate-50'}`}>
+                    <div className={`flex items-center font-bold text-sm ${activeTab === 'B' ? 'text-purple-600' : 'text-slate-500'}`}>
+                        <Store size={18} className="mr-2" /> FILIAL
+                        {reportB.length > 0 && <span className="ml-2 bg-purple-200 text-purple-800 text-[10px] px-2 py-0.5 rounded-full">{reportB.length}</span>}
                     </div>
-                </div>
+                    {summaryB?.identity && <span className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-sm animate-in zoom-in ${activeTab === 'B' ? 'text-white bg-purple-600' : 'text-slate-300 bg-slate-100'}`}>{summaryB.identity}</span>}
+                </button>
+                <div className="w-px bg-slate-200"></div>
+                <button onClick={() => { setActiveTab('C'); setFilters({ id: '', ref: '', line: '', origin: '' }); }} className={`flex-1 py-3 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTab === 'C' ? 'border-blue-600 bg-blue-50/50' : 'border-transparent hover:bg-slate-50'}`}>
+                    <div className={`flex items-center font-bold text-sm ${activeTab === 'C' ? 'text-blue-600' : 'text-slate-500'}`}>
+                        <Sigma size={18} className="mr-2" /> CONSOLIDADO
+                        {consolidatedData.length > 0 && <span className="ml-2 bg-blue-200 text-blue-800 text-[10px] px-2 py-0.5 rounded-full">{consolidatedData.length}</span>}
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-sm ${activeTab === 'C' ? 'text-white bg-blue-600' : 'text-slate-300 bg-slate-100'}`}>MATRIZ + FILIAL</span>
+                </button>
+                <div className="w-px bg-slate-200"></div>
+                <button onClick={() => { setActiveTab('D'); setFilters({ id: '', ref: '', line: '', origin: '' }); }} className={`flex-1 py-3 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTab === 'D' ? 'border-green-600 bg-green-50/50' : 'border-transparent hover:bg-slate-50'}`}>
+                    <div className={`flex items-center font-bold text-sm ${activeTab === 'D' ? 'text-green-600' : 'text-slate-500'}`}>
+                        <Package size={18} className="mr-2" /> RESUMO PRODUTOS
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-sm ${activeTab === 'D' ? 'text-white bg-green-600' : 'text-slate-300 bg-slate-100'}`}>AGRUPADO</span>
+                </button>
+            </div>
 
-                {/* Content Area */}
-                <div className="flex-1 overflow-auto relative bg-white" style={{ height: 'calc(100vh - 300px)' }}>
-                    {isParsing ? (
-                        <div className="flex flex-col items-center justify-center h-full text-slate-500">
-                            <Loader2 className="animate-spin mb-2" size={32} />
-                            <p>Processando...</p>
-                        </div>
-                    ) : (
+            {/* Toolbar */}
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
+                <div className="flex items-center gap-4 w-full md:w-auto">
+                    {(activeTab === 'A' || activeTab === 'B') ? (
                         <>
-                            {/* REGULAR VIEW (A or B) */}
-                            {(activeTab === 'A' || activeTab === 'B') && (
-                                currentReport.length > 0 ? (
-                                    <table className="w-full text-sm text-left relative">
-                                        <thead className="text-slate-700 font-bold border-b border-slate-200 sticky top-0 z-20 shadow-md">
-                                            <tr>
-                                                <th className="px-6 py-3 w-20 text-center text-slate-400 bg-slate-50">#</th>
-                                                <th className="px-6 py-2 bg-slate-50">
-                                                    <div className="flex flex-col gap-1">
-                                                        <span>ID</span>
-                                                        <div className="relative">
-                                                            <Search size={10} className="absolute left-2 top-2 text-slate-400" />
-                                                            <input type="text" className="w-full pl-6 pr-2 py-1 text-[10px] border rounded outline-none focus:border-brand-500" placeholder="Filtrar" value={filters.id} onChange={e => setFilters({ ...filters, id: e.target.value })} />
-                                                        </div>
-                                                    </div>
-                                                </th>
-                                                <th className="px-6 py-2 bg-slate-50">
-                                                    <div className="flex flex-col gap-1">
-                                                        <span>Referência</span>
-                                                        <div className="relative">
-                                                            <Search size={10} className="absolute left-2 top-2 text-slate-400" />
-                                                            <input type="text" className="w-full pl-6 pr-2 py-1 text-[10px] border rounded outline-none focus:border-brand-500" placeholder="Filtrar" value={filters.ref} onChange={e => setFilters({ ...filters, ref: e.target.value })} />
-                                                        </div>
-                                                    </div>
-                                                </th>
-                                                <th className="px-6 py-2 bg-slate-50">
-                                                    <div className="flex flex-col gap-1">
-                                                        <span>Linha (Ext.)</span>
-                                                        <div className="relative">
-                                                            <Search size={10} className="absolute left-2 top-2 text-slate-400" />
-                                                            <input type="text" className="w-full pl-6 pr-2 py-1 text-[10px] border rounded outline-none focus:border-brand-500" placeholder="Filtrar" value={filters.line} onChange={e => setFilters({ ...filters, line: e.target.value })} />
-                                                        </div>
-                                                    </div>
-                                                </th>
-                                                <th className="px-6 py-3 text-right bg-slate-50">Qtd (CX)</th>
-                                                <th className="px-6 py-3 text-right bg-slate-50">Total (R$)</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {filteredReport.map((row, idx) => (
-                                                <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                                    <td className="px-6 py-2 text-center text-slate-400 text-xs font-mono">{idx + 1}</td>
-                                                    <td className="px-6 py-2 font-mono text-slate-600">{row.ID}</td>
-                                                    <td className="px-6 py-2 font-bold text-slate-800">
-                                                        {row.REFERENCIA}
-                                                        <span className="block text-[10px] text-slate-400 font-normal">{row.DESCRICAO}</span>
-                                                    </td>
-                                                    <td className="px-6 py-2">
-                                                        <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded">{row.LINHA || '-'}</span>
-                                                    </td>
-                                                    <td className="px-6 py-2 text-right font-mono text-blue-600">{row.QTDADE}</td>
-                                                    <td className="px-6 py-2 text-right font-mono text-green-700">{row.TOTAL}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                ) : (
-                                    <div className="flex flex-col items-center justify-center h-full text-slate-400 opacity-60">
-                                        <TableIcon size={64} className="mb-4" />
-                                        <p className="font-medium">Aguardando importação...</p>
-                                    </div>
-                                )
+                            {currentSummary.fileName ? (
+                                <div className="flex flex-col">
+                                    <span className="text-[10px] font-bold uppercase text-slate-400">Arquivo</span>
+                                    <span className="font-mono text-sm font-bold text-slate-700">{currentSummary.fileName}</span>
+                                </div>
+                            ) : (
+                                <span className="text-sm text-slate-400 italic flex items-center"><FileText size={16} className="mr-2" /> Nenhum arquivo.</span>
                             )}
-
-                            {/* CONSOLIDATED VIEW (C) */}
-                            {activeTab === 'C' && (
-                                consolidatedData.length > 0 ? (
-                                    <table className="w-full text-sm text-left relative">
-                                        <thead className="text-slate-700 font-bold border-b border-slate-200 sticky top-0 z-20 shadow-md">
-                                            <tr>
-                                                <th className="px-2 py-2 w-24 bg-slate-50">
-                                                    <div className="flex flex-col gap-1">
-                                                        <span className="text-xs">ID</span>
-                                                        <input type="text" className="w-full px-1 py-0.5 text-[10px] border rounded outline-none" placeholder="Filtrar" value={filters.id} onChange={e => setFilters({ ...filters, id: e.target.value })} />
-                                                    </div>
-                                                </th>
-                                                <th className="px-2 py-2 w-40 bg-slate-50">
-                                                    <div className="flex flex-col gap-1">
-                                                        <span className="text-xs">Ref.</span>
-                                                        <input type="text" className="w-full px-1 py-0.5 text-[10px] border rounded outline-none" placeholder="Filtrar" value={filters.ref} onChange={e => setFilters({ ...filters, ref: e.target.value })} />
-                                                    </div>
-                                                </th>
-                                                {/* INTERACTIVE HEADERS */}
-                                                <th
-                                                    onClick={() => handleCategoryClick('LEVE')}
-                                                    className={`px-1 py-2 text-center w-[60px] text-[10px] font-bold uppercase border-l border-slate-200 cursor-pointer transition-colors select-none ${selectedCategoryFilter === 'LEVE' ? 'bg-blue-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
-                                                    title="Filtrar por LEVE"
-                                                >
-                                                    LEVE
-                                                </th>
-                                                <th
-                                                    onClick={() => handleCategoryClick('ULTRA')}
-                                                    className={`px-1 py-2 text-center w-[60px] text-[10px] font-bold uppercase border-l border-slate-200 cursor-pointer transition-colors select-none ${selectedCategoryFilter === 'ULTRA' ? 'bg-purple-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
-                                                    title="Filtrar por ULTRA"
-                                                >
-                                                    ULTRA
-                                                </th>
-                                                <th
-                                                    onClick={() => handleCategoryClick('NOBRE')}
-                                                    className={`px-1 py-2 text-center w-[60px] text-[10px] font-bold uppercase border-l border-slate-200 cursor-pointer transition-colors select-none ${selectedCategoryFilter === 'NOBRE' ? 'bg-orange-500 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
-                                                    title="Filtrar por NOBRE"
-                                                >
-                                                    NOBRE
-                                                </th>
-                                                <th className="px-2 py-3 text-right text-slate-400 font-normal w-20 text-xs bg-slate-50">Qtd Matriz</th>
-                                                <th className="px-2 py-3 text-right text-slate-400 font-normal w-24 text-xs bg-slate-50 border-r border-slate-100">Vlr Matriz</th>
-                                                <th className="px-2 py-3 text-right text-slate-400 font-normal w-20 text-xs bg-slate-50">Qtd Filial</th>
-                                                <th className="px-2 py-3 text-right text-slate-400 font-normal w-24 text-xs bg-slate-50 border-r border-slate-100">Vlr Filial</th>
-                                                <th className="px-4 py-3 text-right text-green-700 w-32 text-xs border-l border-slate-100 bg-slate-50">Valor TOTAL</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {filteredConsolidated.map((item) => {
-                                                const normCat = item.category ? item.category.toUpperCase() : '';
-                                                return (
-                                                    <tr key={item.id} className={`transition-colors ${item.isRowRed ? 'bg-red-100 hover:bg-red-200' : 'hover:bg-slate-50'}`}>
-                                                        <td className="px-2 py-2 font-mono text-slate-600 text-xs">{item.id}</td>
-                                                        <td className="px-2 py-2 font-bold text-slate-800 text-xs">{item.reference}</td>
-
-                                                        {/* LEVE */}
-                                                        <td className={`px-1 py-2 text-center font-mono text-[10px] border-l border-slate-100 ${normCat === 'LEVE' ? (item.isCellRed ? 'bg-red-200 text-red-800 font-bold' : 'text-slate-700 font-medium') : 'text-slate-200'}`}>
-                                                            {normCat === 'LEVE' ? item.splitString : '-'}
-                                                        </td>
-
-                                                        {/* ULTRA */}
-                                                        <td className={`px-1 py-2 text-center font-mono text-[10px] border-l border-slate-100 ${normCat === 'ULTRA' ? (item.isCellRed ? 'bg-red-200 text-red-800 font-bold' : 'text-slate-700 font-medium') : 'text-slate-200'}`}>
-                                                            {normCat === 'ULTRA' ? item.splitString : '-'}
-                                                        </td>
-
-                                                        {/* NOBRE */}
-                                                        <td className={`px-1 py-2 text-center font-mono text-[10px] border-l border-slate-100 ${normCat === 'NOBRE' ? 'text-slate-700 font-medium' : 'text-slate-200'}`}>
-                                                            {normCat === 'NOBRE' ? item.splitString : '-'}
-                                                        </td>
-
-                                                        <td className="px-2 py-2 text-right font-mono text-xs text-slate-500">
-                                                            {item.qtyMatriz > 0 ? item.qtyMatriz.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) : '-'}
-                                                        </td>
-                                                        <td className="px-2 py-2 text-right font-mono text-xs text-blue-600 border-r border-slate-100">
-                                                            {item.valMatriz > 0 ? item.valMatriz.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '-'}
-                                                        </td>
-                                                        <td className="px-2 py-2 text-right font-mono text-xs text-slate-500">
-                                                            {item.qtyFilial > 0 ? item.qtyFilial.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) : '-'}
-                                                        </td>
-                                                        <td className="px-2 py-2 text-right font-mono text-xs text-purple-600 border-r border-slate-100">
-                                                            {item.valFilial > 0 ? item.valFilial.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '-'}
-                                                        </td>
-
-                                                        <td className="px-4 py-2 text-right font-mono font-bold text-green-700 text-xs border-l border-slate-100">
-                                                            {item.valTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                ) : (
-                                    <div className="flex flex-col items-center justify-center h-full text-slate-400 opacity-60">
-                                        <Sigma size={64} className="mb-4" />
-                                        <p className="font-medium">Sem dados consolidados ou filtro sem resultados.</p>
+                            {currentSummary.period && (
+                                <>
+                                    <div className="hidden md:block w-px h-8 bg-slate-300 mx-2"></div>
+                                    <div className="flex flex-col">
+                                        <span className="text-[10px] font-bold uppercase text-slate-400 flex items-center"><Calendar size={10} className="mr-1" /> Período</span>
+                                        <span className="font-mono text-sm font-bold text-brand-700">{currentSummary.period}</span>
                                     </div>
-                                )
+                                </>
                             )}
+                        </>
+                    ) : (
+                        <div className="flex items-center gap-4">
+                            <span className="text-sm font-bold text-slate-600 flex items-center bg-white px-3 py-1.5 rounded border border-slate-200">
+                                <Layers size={16} className="mr-2 text-blue-500" />
+                                {activeTab === 'C' ? 'Total Itens:' : 'Total Produtos:'} <b className="ml-1 text-slate-800">{activeTab === 'C' ? consolidatedSummary.count : productSummaryData.length}</b>
+                            </span>
+                            {selectedCategoryFilter && activeTab === 'C' && (
+                                <span className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-full animate-in fade-in">
+                                    <Filter size={12} />
+                                    Filtro: {selectedCategoryFilter}
+                                    <button onClick={() => setSelectedCategoryFilter(null)} className="ml-1 hover:text-red-300" title={`Remover filtro: ${selectedCategoryFilter}`} aria-label={`Remover filtro: ${selectedCategoryFilter}`}><Trash2 size={12} /></button>
+                                </span>
+                            )}
+                            {activeTab === 'C' && consolidatedData.length > 0 && (
+                                <button
+                                    onClick={() => setShowPreviewModal(true)}
+                                    className="ml-2 flex items-center px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm transition-all"
+                                >
+                                    <Database size={14} className="mr-1.5" />
+                                    Pré-visualizar Banco
+                                </button>
+                            )}
+                        </div>
+                    )}
+                </div>
 
-                            {/* AGGREGATED PRODUCT VIEW (D) */}
-                            {activeTab === 'D' && (
-                                filteredProductSummary.length > 0 ? (
-                                    <table className="w-full text-sm text-left relative">
-                                        <thead className="text-slate-700 font-bold border-b border-slate-200 sticky top-0 z-20 shadow-md">
-                                            <tr>
-                                                <th className="px-2 py-3 text-center w-24 bg-slate-50">
-                                                    <div className="flex flex-col gap-1">
-                                                        <span>Cód. Nobre</span>
-                                                        <input type="text" className="w-full px-1 py-0.5 text-[10px] border rounded outline-none" placeholder="ID" value={filters.id} onChange={e => setFilters({ ...filters, id: e.target.value })} />
-                                                    </div>
-                                                </th>
-                                                <th className="px-4 py-3 text-left bg-slate-50">
-                                                    <div className="flex flex-col gap-1">
-                                                        <span>Produto (Ref)</span>
-                                                        <div className="relative w-32">
-                                                            <Search size={10} className="absolute left-2 top-2 text-slate-400" />
-                                                            <input type="text" className="w-full pl-6 pr-2 py-1 text-[10px] border rounded outline-none focus:border-brand-500" placeholder="Filtrar" value={filters.ref} onChange={e => setFilters({ ...filters, ref: e.target.value })} />
-                                                        </div>
-                                                    </div>
-                                                </th>
-
-                                                {/* MATRIZ GROUP */}
-                                                <th className="px-2 py-3 text-right bg-blue-50/50 border-l border-slate-200">Qtd Matriz</th>
-                                                <th className="px-2 py-3 text-right bg-blue-50/50">Valor Matriz</th>
-
-                                                {/* FILIAL GROUP */}
-                                                <th className="px-2 py-3 text-right bg-purple-50/50 border-l border-slate-200">Qtd Filial</th>
-                                                <th className="px-2 py-3 text-right bg-purple-50/50">Valor Filial</th>
-
-                                                {/* TOTAL GROUP */}
-                                                <th className="px-2 py-3 text-right bg-green-50/50 border-l border-slate-200">Qtd Geral</th>
-                                                <th className="px-4 py-3 text-right bg-green-50/50 font-extrabold text-green-800">TOTAL R$</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {filteredProductSummary.map((item) => (
-                                                <tr key={item.reference} className="hover:bg-slate-50 transition-colors">
-                                                    <td className="px-2 py-3 text-center">
-                                                        <span className={`text-[10px] font-mono font-bold px-2 py-1 rounded ${item.isSystemCode ? 'bg-green-100 text-green-800 border border-green-200' : (item.nobreId !== '-' ? 'bg-orange-100 text-orange-800' : 'bg-slate-100 text-slate-400')}`} title={item.isSystemCode ? 'Código validado no Sistema' : 'Código obtido do Relatório'}>
-                                                            {item.nobreId}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-4 py-3 font-bold text-slate-800">{item.reference}</td>
-
-                                                    {/* MATRIZ */}
-                                                    <td className="px-2 py-3 text-right font-mono text-xs text-blue-600 bg-blue-50/10 border-l border-slate-100">
-                                                        {item.qtyMatriz.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
-                                                    </td>
-                                                    <td className="px-2 py-3 text-right font-mono text-xs text-blue-600 bg-blue-50/10">
-                                                        {item.valMatriz.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                                    </td>
-
-                                                    {/* FILIAL */}
-                                                    <td className="px-2 py-3 text-right font-mono text-xs text-purple-600 bg-purple-50/10 border-l border-slate-100">
-                                                        {item.qtyFilial.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
-                                                    </td>
-                                                    <td className="px-2 py-3 text-right font-mono text-xs text-purple-600 bg-purple-50/10">
-                                                        {item.valFilial.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                                    </td>
-
-                                                    {/* TOTAL */}
-                                                    <td className="px-2 py-3 text-right font-mono text-xs font-bold text-slate-700 bg-green-50/10 border-l border-slate-100">
-                                                        {item.qtyTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
-                                                    </td>
-                                                    <td className="px-4 py-3 text-right font-mono text-sm font-extrabold text-green-700 bg-green-50/10">
-                                                        {item.valTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                ) : (
-                                    <div className="flex flex-col items-center justify-center h-full text-slate-400 opacity-60">
-                                        <Package size={64} className="mb-4" />
-                                        <p className="font-medium">Sem dados para resumo ou filtro sem resultados.</p>
-                                    </div>
-                                )
+                <div className="flex gap-2 w-full md:w-auto justify-end">
+                    {(activeTab === 'A' || activeTab === 'B') && (
+                        <>
+                            <label className={`cursor-pointer text-white px-4 py-2 rounded-lg font-bold shadow-sm flex items-center transition-all ${currentReport.length > 0 ? 'bg-slate-300 cursor-not-allowed opacity-70' : (activeTab === 'A' ? 'bg-brand-600 hover:bg-brand-700 active:scale-95' : 'bg-purple-600 hover:bg-purple-700 active:scale-95')}`}>
+                                <Upload size={18} className="mr-2" />
+                                {activeTab === 'A' ? 'Carregar Matriz' : 'Carregar Filial'}
+                                <input type="file" accept=".txt,.csv" className="hidden" onChange={handleFileUpload} disabled={currentReport.length > 0} />
+                            </label>
+                            {currentReport.length > 0 && (
+                                <button onClick={handleClear} className="p-2 border border-slate-300 bg-white rounded-lg hover:bg-red-50 hover:text-red-600 text-slate-500 transition-colors" title="Limpar" aria-label="Limpar"><Trash2 size={18} /></button>
                             )}
                         </>
                     )}
                 </div>
-
-                {/* Footer Summary - DYNAMIC */}
-                <div className="bg-slate-50 border-t border-slate-200 p-4">
-                    {(activeTab === 'C' || activeTab === 'D') ? (
-                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 animate-in slide-in-from-bottom-2">
-                            {/* GRAND TOTAL WITH TAX (NEW) */}
-                            <div className="bg-indigo-600 text-white border border-indigo-700 p-3 rounded-lg shadow-md hover:scale-[1.02] transition-transform">
-                                <p className="text-[10px] uppercase text-indigo-200 font-bold">Total Líquido + IPI</p>
-                                <p className="text-xl font-extrabold">R$ {(consolidatedSummary.totalValue + consolidatedSummary.totalIPI).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                            </div>
-
-                            <div className="bg-blue-50 text-blue-800 border border-blue-200 p-3 rounded-lg shadow-sm">
-                                <p className="text-[10px] uppercase text-blue-400 font-bold">Total Produtos (R$)</p>
-                                <p className="text-xl font-bold">R$ {consolidatedSummary.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                            </div>
-                            <div className="bg-white border p-3 rounded-lg shadow-sm border-blue-100">
-                                <p className="text-[10px] uppercase text-blue-400 font-bold">Qtd Global (CX)</p>
-                                <p className="text-xl font-bold text-blue-700">{consolidatedSummary.totalQty.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</p>
-                            </div>
-                            <div className="bg-white border p-3 rounded-lg shadow-sm border-slate-200">
-                                <p className="text-[10px] uppercase text-slate-400 font-bold">{activeTab === 'C' ? 'Itens (IDs)' : 'Produtos (Refs)'}</p>
-                                <p className="text-xl font-bold text-slate-700">{activeTab === 'C' ? consolidatedSummary.count : filteredProductSummary.length}</p>
-                            </div>
-                            {consolidatedSummary.totalIPI > 0 && (
-                                <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg shadow-sm">
-                                    <p className="text-[10px] uppercase text-orange-500 font-bold flex items-center">
-                                        <Calculator size={12} className="mr-1" /> IPI Acumulado
-                                    </p>
-                                    <p className="text-xl font-bold text-orange-700">R$ {consolidatedSummary.totalIPI.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                                </div>
-                            )}
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <div className="bg-white border p-3 rounded-lg shadow-sm">
-                                <p className="text-[10px] uppercase text-slate-400 font-bold">Itens</p>
-                                <p className="text-xl font-bold text-slate-700">{currentReport.length}</p>
-                            </div>
-                            <div className="bg-white border p-3 rounded-lg shadow-sm border-blue-100">
-                                <p className="text-[10px] uppercase text-blue-400 font-bold">Qtd Total (CX)</p>
-                                <p className="text-xl font-bold text-blue-700">{currentSummary.totalQty.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</p>
-                            </div>
-                            <div className="bg-white border p-3 rounded-lg shadow-sm border-green-100">
-                                <p className="text-[10px] uppercase text-green-400 font-bold">Valor Total</p>
-                                <p className="text-xl font-bold text-green-700">R$ {currentSummary.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                            </div>
-                            {currentSummary.totalIPI > 0 && (
-                                <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg shadow-sm">
-                                    <p className="text-[10px] uppercase text-orange-500 font-bold flex items-center">
-                                        <Calculator size={12} className="mr-1" /> IPI Detectado
-                                    </p>
-                                    <p className="text-xl font-bold text-orange-700">R$ {currentSummary.totalIPI.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
             </div>
 
-            {/* PREVIEW MODAL FOR DATABASE SAVING */}
-            {showPreviewModal && (
+            {/* Content Area */}
+            <div className="flex-1 overflow-auto relative bg-white h-[calc(100vh-300px)]">
+                {isParsing ? (
+                    <div className="flex flex-col items-center justify-center h-full text-slate-500">
+                        <Loader2 className="animate-spin mb-2" size={32} />
+                        <p>Processando...</p>
+                    </div>
+                ) : (
+                    <>
+                        {/* REGULAR VIEW (A or B) */}
+                        {(activeTab === 'A' || activeTab === 'B') && (
+                            currentReport.length > 0 ? (
+                                <table className="w-full text-sm text-left relative">
+                                    <thead className="text-slate-700 font-bold border-b border-slate-200 sticky top-0 z-20 shadow-md">
+                                        <tr>
+                                            <th className="px-6 py-3 w-20 text-center text-slate-400 bg-slate-50">#</th>
+                                            <th className="px-6 py-2 bg-slate-50">
+                                                <div className="flex flex-col gap-1">
+                                                    <span>ID</span>
+                                                    <div className="relative">
+                                                        <Search size={10} className="absolute left-2 top-2 text-slate-400" />
+                                                        <input type="text" className="w-full pl-6 pr-2 py-1 text-[10px] border rounded outline-none focus:border-brand-500" placeholder="Filtrar" value={filters.id} onChange={e => setFilters({ ...filters, id: e.target.value })} title="Filtrar por ID" aria-label="Filtrar por ID" />
+                                                    </div>
+                                                </div>
+                                            </th>
+                                            <th className="px-6 py-2 bg-slate-50">
+                                                <div className="flex flex-col gap-1">
+                                                    <span>Referência</span>
+                                                    <div className="relative">
+                                                        <Search size={10} className="absolute left-2 top-2 text-slate-400" />
+                                                        <input type="text" className="w-full pl-6 pr-2 py-1 text-[10px] border rounded outline-none focus:border-brand-500" placeholder="Filtrar" value={filters.ref} onChange={e => setFilters({ ...filters, ref: e.target.value })} title="Filtrar por Referência" aria-label="Filtrar por Referência" />
+                                                    </div>
+                                                </div>
+                                            </th>
+                                            <th className="px-6 py-2 bg-slate-50">
+                                                <div className="flex flex-col gap-1">
+                                                    <span>Linha (Ext.)</span>
+                                                    <div className="relative">
+                                                        <Search size={10} className="absolute left-2 top-2 text-slate-400" />
+                                                        <input type="text" className="w-full pl-6 pr-2 py-1 text-[10px] border rounded outline-none focus:border-brand-500" placeholder="Filtrar" value={filters.line} onChange={e => setFilters({ ...filters, line: e.target.value })} title="Filtrar por Linha" aria-label="Filtrar por Linha" />
+                                                    </div>
+                                                </div>
+                                            </th>
+                                            <th className="px-6 py-3 text-right bg-slate-50">Qtd (CX)</th>
+                                            <th className="px-6 py-3 text-right bg-slate-50">Total (R$)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {filteredReport.map((row, idx) => (
+                                            <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                                <td className="px-6 py-2 text-center text-slate-400 text-xs font-mono">{idx + 1}</td>
+                                                <td className="px-6 py-2 font-mono text-slate-600">{row.ID}</td>
+                                                <td className="px-6 py-2 font-bold text-slate-800">
+                                                    {row.REFERENCIA}
+                                                    <span className="block text-[10px] text-slate-400 font-normal">{row.DESCRICAO}</span>
+                                                </td>
+                                                <td className="px-6 py-2">
+                                                    <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded">{row.LINHA || '-'}</span>
+                                                </td>
+                                                <td className="px-6 py-2 text-right font-mono text-blue-600">{row.QTDADE}</td>
+                                                <td className="px-6 py-2 text-right font-mono text-green-700">{row.TOTAL}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            ) : (
+                                <div className="flex flex-col items-center justify-center h-full text-slate-400 opacity-60">
+                                    <TableIcon size={64} className="mb-4" />
+                                    <p className="font-medium">Aguardando importação...</p>
+                                </div>
+                            )
+                        )}
+
+                        {/* CONSOLIDATED VIEW (C) */}
+                        {activeTab === 'C' && (
+                            consolidatedData.length > 0 ? (
+                                <table className="w-full text-sm text-left relative">
+                                    <thead className="text-slate-700 font-bold border-b border-slate-200 sticky top-0 z-20 shadow-md">
+                                        <tr>
+                                            <th className="px-2 py-2 w-24 bg-slate-50">
+                                                <div className="flex flex-col gap-1">
+                                                    <span className="text-xs">ID</span>
+                                                    <input type="text" className="w-full px-1 py-0.5 text-[10px] border rounded outline-none" placeholder="Filtrar" value={filters.id} onChange={e => setFilters({ ...filters, id: e.target.value })} title="Filtrar por ID" aria-label="Filtrar por ID" />
+                                                </div>
+                                            </th>
+                                            <th className="px-2 py-2 w-40 bg-slate-50">
+                                                <div className="flex flex-col gap-1">
+                                                    <span className="text-xs">Ref.</span>
+                                                    <input type="text" className="w-full px-1 py-0.5 text-[10px] border rounded outline-none" placeholder="Filtrar" value={filters.ref} onChange={e => setFilters({ ...filters, ref: e.target.value })} title="Filtrar por Referência" aria-label="Filtrar por Referência" />
+                                                </div>
+                                            </th>
+                                            {/* INTERACTIVE HEADERS */}
+                                            <th
+                                                onClick={() => handleCategoryClick('LEVE')}
+                                                className={`px-1 py-2 text-center w-[60px] text-[10px] font-bold uppercase border-l border-slate-200 cursor-pointer transition-colors select-none ${selectedCategoryFilter === 'LEVE' ? 'bg-blue-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
+                                                title="Filtrar por LEVE"
+                                            >
+                                                LEVE
+                                            </th>
+                                            <th
+                                                onClick={() => handleCategoryClick('ULTRA')}
+                                                className={`px-1 py-2 text-center w-[60px] text-[10px] font-bold uppercase border-l border-slate-200 cursor-pointer transition-colors select-none ${selectedCategoryFilter === 'ULTRA' ? 'bg-purple-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
+                                                title="Filtrar por ULTRA"
+                                            >
+                                                ULTRA
+                                            </th>
+                                            <th
+                                                onClick={() => handleCategoryClick('NOBRE')}
+                                                className={`px-1 py-2 text-center w-[60px] text-[10px] font-bold uppercase border-l border-slate-200 cursor-pointer transition-colors select-none ${selectedCategoryFilter === 'NOBRE' ? 'bg-orange-500 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
+                                                title="Filtrar por NOBRE"
+                                            >
+                                                NOBRE
+                                            </th>
+                                            <th className="px-2 py-3 text-right text-slate-400 font-normal w-20 text-xs bg-slate-50">Qtd Matriz</th>
+                                            <th className="px-2 py-3 text-right text-slate-400 font-normal w-24 text-xs bg-slate-50 border-r border-slate-100">Vlr Matriz</th>
+                                            <th className="px-2 py-3 text-right text-slate-400 font-normal w-20 text-xs bg-slate-50">Qtd Filial</th>
+                                            <th className="px-2 py-3 text-right text-slate-400 font-normal w-24 text-xs bg-slate-50 border-r border-slate-100">Vlr Filial</th>
+                                            <th className="px-4 py-3 text-right text-green-700 w-32 text-xs border-l border-slate-100 bg-slate-50">Valor TOTAL</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {filteredConsolidated.map((item) => {
+                                            const normCat = item.category ? item.category.toUpperCase() : '';
+                                            return (
+                                                <tr key={item.id} className={`transition-colors ${item.isRowRed ? 'bg-red-100 hover:bg-red-200' : 'hover:bg-slate-50'}`}>
+                                                    <td className="px-2 py-2 font-mono text-slate-600 text-xs">{item.id}</td>
+                                                    <td className="px-2 py-2 font-bold text-slate-800 text-xs">{item.reference}</td>
+
+                                                    {/* LEVE */}
+                                                    <td className={`px-1 py-2 text-center font-mono text-[10px] border-l border-slate-100 ${normCat === 'LEVE' ? (item.isCellRed ? 'bg-red-200 text-red-800 font-bold' : 'text-slate-700 font-medium') : 'text-slate-200'}`}>
+                                                        {normCat === 'LEVE' ? item.splitString : '-'}
+                                                    </td>
+
+                                                    {/* ULTRA */}
+                                                    <td className={`px-1 py-2 text-center font-mono text-[10px] border-l border-slate-100 ${normCat === 'ULTRA' ? (item.isCellRed ? 'bg-red-200 text-red-800 font-bold' : 'text-slate-700 font-medium') : 'text-slate-200'}`}>
+                                                        {normCat === 'ULTRA' ? item.splitString : '-'}
+                                                    </td>
+
+                                                    {/* NOBRE */}
+                                                    <td className={`px-1 py-2 text-center font-mono text-[10px] border-l border-slate-100 ${normCat === 'NOBRE' ? 'text-slate-700 font-medium' : 'text-slate-200'}`}>
+                                                        {normCat === 'NOBRE' ? item.splitString : '-'}
+                                                    </td>
+
+                                                    <td className="px-2 py-2 text-right font-mono text-xs text-slate-500">
+                                                        {item.qtyMatriz > 0 ? item.qtyMatriz.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) : '-'}
+                                                    </td>
+                                                    <td className="px-2 py-2 text-right font-mono text-xs text-blue-600 border-r border-slate-100">
+                                                        {item.valMatriz > 0 ? item.valMatriz.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '-'}
+                                                    </td>
+                                                    <td className="px-2 py-2 text-right font-mono text-xs text-slate-500">
+                                                        {item.qtyFilial > 0 ? item.qtyFilial.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) : '-'}
+                                                    </td>
+                                                    <td className="px-2 py-2 text-right font-mono text-xs text-purple-600 border-r border-slate-100">
+                                                        {item.valFilial > 0 ? item.valFilial.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '-'}
+                                                    </td>
+
+                                                    <td className="px-4 py-2 text-right font-mono font-bold text-green-700 text-xs border-l border-slate-100">
+                                                        {item.valTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            ) : (
+                                <div className="flex flex-col items-center justify-center h-full text-slate-400 opacity-60">
+                                    <Sigma size={64} className="mb-4" />
+                                    <p className="font-medium">Sem dados consolidados ou filtro sem resultados.</p>
+                                </div>
+                            )
+                        )}
+
+                        {/* AGGREGATED PRODUCT VIEW (D) */}
+                        {activeTab === 'D' && (
+                            filteredProductSummary.length > 0 ? (
+                                <table className="w-full text-sm text-left relative">
+                                    <thead className="text-slate-700 font-bold border-b border-slate-200 sticky top-0 z-20 shadow-md">
+                                        <tr>
+                                            <th className="px-2 py-3 text-center w-24 bg-slate-50">
+                                                <div className="flex flex-col gap-1">
+                                                    <span>Cód. Nobre</span>
+                                                    <input type="text" className="w-full px-1 py-0.5 text-[10px] border rounded outline-none" placeholder="ID" value={filters.id} onChange={e => setFilters({ ...filters, id: e.target.value })} title="Filtrar por ID" aria-label="Filtrar por ID" />
+                                                </div>
+                                            </th>
+                                            <th className="px-4 py-3 text-left bg-slate-50">
+                                                <div className="flex flex-col gap-1">
+                                                    <span>Produto (Ref)</span>
+                                                    <div className="relative w-32">
+                                                        <Search size={10} className="absolute left-2 top-2 text-slate-400" />
+                                                        <input type="text" className="w-full pl-6 pr-2 py-1 text-[10px] border rounded outline-none focus:border-brand-500" placeholder="Filtrar" value={filters.ref} onChange={e => setFilters({ ...filters, ref: e.target.value })} title="Filtrar por Produto" aria-label="Filtrar por Produto" />
+                                                    </div>
+                                                </div>
+                                            </th>
+
+                                            {/* MATRIZ GROUP */}
+                                            <th className="px-2 py-3 text-right bg-blue-50/50 border-l border-slate-200">Qtd Matriz</th>
+                                            <th className="px-2 py-3 text-right bg-blue-50/50">Valor Matriz</th>
+
+                                            {/* FILIAL GROUP */}
+                                            <th className="px-2 py-3 text-right bg-purple-50/50 border-l border-slate-200">Qtd Filial</th>
+                                            <th className="px-2 py-3 text-right bg-purple-50/50">Valor Filial</th>
+
+                                            {/* TOTAL GROUP */}
+                                            <th className="px-2 py-3 text-right bg-green-50/50 border-l border-slate-200">Qtd Geral</th>
+                                            <th className="px-4 py-3 text-right bg-green-50/50 font-extrabold text-green-800">TOTAL R$</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {filteredProductSummary.map((item) => (
+                                            <tr key={item.reference} className="hover:bg-slate-50 transition-colors">
+                                                <td className="px-2 py-3 text-center">
+                                                    <span className={`text-[10px] font-mono font-bold px-2 py-1 rounded ${item.isSystemCode ? 'bg-green-100 text-green-800 border border-green-200' : (item.nobreId !== '-' ? 'bg-orange-100 text-orange-800' : 'bg-slate-100 text-slate-400')}`} title={item.isSystemCode ? 'Código validado no Sistema' : 'Código obtido do Relatório'}>
+                                                        {item.nobreId}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 font-bold text-slate-800">{item.reference}</td>
+
+                                                {/* MATRIZ */}
+                                                <td className="px-2 py-3 text-right font-mono text-xs text-blue-600 bg-blue-50/10 border-l border-slate-100">
+                                                    {item.qtyMatriz.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                                                </td>
+                                                <td className="px-2 py-3 text-right font-mono text-xs text-blue-600 bg-blue-50/10">
+                                                    {item.valMatriz.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                                </td>
+
+                                                {/* FILIAL */}
+                                                <td className="px-2 py-3 text-right font-mono text-xs text-purple-600 bg-purple-50/10 border-l border-slate-100">
+                                                    {item.qtyFilial.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                                                </td>
+                                                <td className="px-2 py-3 text-right font-mono text-xs text-purple-600 bg-purple-50/10">
+                                                    {item.valFilial.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                                </td>
+
+                                                {/* TOTAL */}
+                                                <td className="px-2 py-3 text-right font-mono text-xs font-bold text-slate-700 bg-green-50/10 border-l border-slate-100">
+                                                    {item.qtyTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-mono text-sm font-extrabold text-green-700 bg-green-50/10">
+                                                    {item.valTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            ) : (
+                                <div className="flex flex-col items-center justify-center h-full text-slate-400 opacity-60">
+                                    <Package size={64} className="mb-4" />
+                                    <p className="font-medium">Sem dados para resumo ou filtro sem resultados.</p>
+                                </div>
+                            )
+                        )}
+                    </>
+                )}
+            </div>
+
+            {/* Footer Summary - DYNAMIC */}
+            <div className="bg-slate-50 border-t border-slate-200 p-4">
+                {(activeTab === 'C' || activeTab === 'D') ? (
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4 animate-in slide-in-from-bottom-2">
+                        {/* GRAND TOTAL WITH TAX (NEW) */}
+                        <div className="bg-indigo-600 text-white border border-indigo-700 p-3 rounded-lg shadow-md hover:scale-[1.02] transition-transform">
+                            <p className="text-[10px] uppercase text-indigo-200 font-bold">Total Líquido + IPI</p>
+                            <p className="text-xl font-extrabold">R$ {(consolidatedSummary.totalValue + consolidatedSummary.totalIPI).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                        </div>
+
+                        <div className="bg-blue-50 text-blue-800 border border-blue-200 p-3 rounded-lg shadow-sm">
+                            <p className="text-[10px] uppercase text-blue-400 font-bold">Total Produtos (R$)</p>
+                            <p className="text-xl font-bold">R$ {consolidatedSummary.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                        </div>
+                        <div className="bg-white border p-3 rounded-lg shadow-sm border-blue-100">
+                            <p className="text-[10px] uppercase text-blue-400 font-bold">Qtd Global (CX)</p>
+                            <p className="text-xl font-bold text-blue-700">{consolidatedSummary.totalQty.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</p>
+                        </div>
+                        <div className="bg-white border p-3 rounded-lg shadow-sm border-slate-200">
+                            <p className="text-[10px] uppercase text-slate-400 font-bold">{activeTab === 'C' ? 'Itens (IDs)' : 'Produtos (Refs)'}</p>
+                            <p className="text-xl font-bold text-slate-700">{activeTab === 'C' ? consolidatedSummary.count : filteredProductSummary.length}</p>
+                        </div>
+                        {consolidatedSummary.totalIPI > 0 && (
+                            <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg shadow-sm">
+                                <p className="text-[10px] uppercase text-orange-500 font-bold flex items-center">
+                                    <Calculator size={12} className="mr-1" /> IPI Acumulado
+                                </p>
+                                <p className="text-xl font-bold text-orange-700">R$ {consolidatedSummary.totalIPI.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div className="bg-white border p-3 rounded-lg shadow-sm">
+                            <p className="text-[10px] uppercase text-slate-400 font-bold">Itens</p>
+                            <p className="text-xl font-bold text-slate-700">{currentReport.length}</p>
+                        </div>
+                        <div className="bg-white border p-3 rounded-lg shadow-sm border-blue-100">
+                            <p className="text-[10px] uppercase text-blue-400 font-bold">Qtd Total (CX)</p>
+                            <p className="text-xl font-bold text-blue-700">{currentSummary.totalQty.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</p>
+                        </div>
+                        <div className="bg-white border p-3 rounded-lg shadow-sm border-green-100">
+                            <p className="text-[10px] uppercase text-green-400 font-bold">Valor Total</p>
+                            <p className="text-xl font-bold text-green-700">R$ {currentSummary.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                        </div>
+                        {currentSummary.totalIPI > 0 && (
+                            <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg shadow-sm">
+                                <p className="text-[10px] uppercase text-orange-500 font-bold flex items-center">
+                                    <Calculator size={12} className="mr-1" /> IPI Detectado
+                                </p>
+                                <p className="text-xl font-bold text-orange-700">R$ {currentSummary.totalIPI.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+
+        {/* PREVIEW MODAL FOR DATABASE SAVING */}
+        {
+            showPreviewModal && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl flex flex-col max-h-[90vh]">
                         <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-xl">
@@ -1090,134 +1071,131 @@ const LegacyImportPage: React.FC = () => {
                                     <Database size={24} />
                                 </div>
                                 <div>
-                                    <h3 className="text-lg font-bold text-slate-800">Pré-visualização de Dados para Gravação</h3>
-                                    <p className="text-xs text-slate-500">Verifique a estrutura dos dados antes de criar a tabela e salvar.</p>
+                                    <div>
+                                        <h3 className="text-lg font-bold text-slate-800">Pré-visualização de Dados para Gravação</h3>
+                                        <p className="text-xs text-slate-500">Verifique a estrutura dos dados antes de criar a tabela e salvar.</p>
+                                    </div>
                                 </div>
-                            </div>
-                            <button onClick={() => setShowPreviewModal(false)} className="p-2 hover:bg-slate-200 rounded-full text-slate-500">
-                                <X size={24} />
-                            </button>
-                        </div>
-
-                        <div className="flex-1 overflow-auto p-0">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200 sticky top-0 z-10 shadow-sm">
-                                    <tr>
-                                        <th className="px-4 py-3 bg-slate-100 border-r border-slate-200 w-24">ID Original</th>
-                                        <th className="px-4 py-3 bg-indigo-50/50 text-indigo-800 border-r border-indigo-100 w-32">Id_Consolidado</th>
-                                        <th className="px-4 py-3 bg-slate-50">Referência</th>
-                                        <th className="px-4 py-3 bg-slate-50">Linha / Categoria</th>
-                                        <th className="px-4 py-3 text-right bg-slate-50">Qtd Matriz</th>
-                                        <th className="px-4 py-3 text-right bg-slate-50 border-r border-slate-100">Vlr Matriz</th>
-                                        <th className="px-4 py-3 text-right bg-slate-50">Qtd Filial</th>
-                                        <th className="px-4 py-3 text-right bg-slate-50 border-r border-slate-100">Vlr Filial</th>
-                                        <th className="px-4 py-3 text-right bg-slate-50">Valor Total (R$)</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {consolidatedData.map((item) => {
-                                        // LOGIC TO FIND ID_CONSOLIDADO (Unified & Optimized)
-                                        // Uses the pre-calculated map
-                                        const idConsolidado = referenceToConsolidatedIdMap.get(item.reference) || null;
-
-                                        return (
-                                            <tr key={item.id} className="hover:bg-slate-50">
-                                                <td className="px-4 py-2 border-r border-slate-100 font-mono text-slate-500 text-xs font-bold bg-slate-50/30">
-                                                    {item.id}
-                                                </td>
-                                                <td className="px-4 py-2 border-r border-slate-100 text-center">
-                                                    {idConsolidado ? (
-                                                        <span className="font-mono font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded text-xs">{idConsolidado}</span>
-                                                    ) : (
-                                                        <span className="text-xs text-slate-400 italic bg-slate-100 px-2 py-1 rounded">N/D</span>
-                                                    )}
-                                                </td>
-                                                <td className="px-4 py-2 font-bold text-slate-700">{item.reference}</td>
-                                                <td className="px-4 py-2 text-xs">
-                                                    <span className="bg-slate-100 px-2 py-1 rounded text-slate-600 font-bold">{item.category}</span>
-                                                </td>
-                                                <td className="px-4 py-2 text-right font-mono text-slate-600">{item.qtyMatriz.toLocaleString('pt-BR')}</td>
-                                                <td className="px-4 py-2 text-right font-mono text-blue-600 text-xs border-r border-slate-100">
-                                                    {item.valMatriz > 0 ? item.valMatriz.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '-'}
-                                                </td>
-                                                <td className="px-4 py-2 text-right font-mono text-slate-600">{item.qtyFilial.toLocaleString('pt-BR')}</td>
-                                                <td className="px-4 py-2 text-right font-mono text-purple-600 text-xs border-r border-slate-100">
-                                                    {item.valFilial > 0 ? item.valFilial.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '-'}
-                                                </td>
-                                                <td className="px-4 py-2 text-right font-bold text-green-700">{item.valTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center rounded-b-xl">
-                            <div className="flex gap-6 items-center">
-                                <div className="text-xs text-slate-500 font-medium flex items-center">
-                                    <CheckCircle2 size={16} className="text-green-500 mr-2" />
-                                    {consolidatedData.length} registros prontos para validação.
-                                </div>
-                                <div className="h-4 w-px bg-slate-300"></div>
-                                <div className="flex gap-4 text-xs font-bold text-slate-600">
-                                    <span className="text-orange-600">Total IPI: R$ {((summaryA?.totalIPI || 0) + (summaryB?.totalIPI || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                                    <span className="text-indigo-700">Total Geral (Liq+IPI): R$ {(consolidatedSummary.totalValue + consolidatedSummary.totalIPI).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                                </div>
-                            </div>
-                            <div className="flex gap-3">
-                                <button onClick={() => setShowPreviewModal(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg font-bold transition-colors">
-                                    Fechar
+                                <button onClick={() => setShowPreviewModal(false)} className="p-2 hover:bg-slate-200 rounded-full text-slate-500" title="Fechar Pré-visualização" aria-label="Fechar Pré-visualização">
+                                    <X size={24} />
                                 </button>
-                                <button
-                                    onClick={() => handleSaveToDatabase(false)}
-                                    disabled={isSaving}
-                                    className={`px-4 py-2 text-white rounded-lg font-bold flex items-center transition-colors ${isSaving ? 'bg-slate-400' : 'bg-indigo-600 hover:bg-indigo-700'}`}
-                                >
-                                    {isSaving ? <Loader2 className="animate-spin mr-2" size={16} /> : <Database size={16} className="mr-2" />}
-                                    {isSaving ? 'Salvando...' : 'Salvar no Banco'}
-                                </button>
+                            </div>
+
+                            <div className="flex-1 overflow-auto p-0">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+                                        <tr>
+                                            <th className="px-4 py-3 bg-slate-100 border-r border-slate-200 w-24">ID Original</th>
+                                            <th className="px-4 py-3 bg-indigo-50/50 text-indigo-800 border-r border-indigo-100 w-32">Id_Consolidado</th>
+                                            <th className="px-4 py-3 bg-slate-50">Referência</th>
+                                            <th className="px-4 py-3 bg-slate-50">Linha / Categoria</th>
+                                            <th className="px-4 py-3 text-right bg-slate-50">Qtd Matriz</th>
+                                            <th className="px-4 py-3 text-right bg-slate-50 border-r border-slate-100">Vlr Matriz</th>
+                                            <th className="px-4 py-3 text-right bg-slate-50">Qtd Filial</th>
+                                            <th className="px-4 py-3 text-right bg-slate-50 border-r border-slate-100">Vlr Filial</th>
+                                            <th className="px-4 py-3 text-right bg-slate-50">Valor Total (R$)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {consolidatedData.map((item) => {
+                                            // LOGIC TO FIND ID_CONSOLIDADO (Unified & Optimized)
+                                            // Uses the pre-calculated map
+                                            const idConsolidado = referenceToConsolidatedIdMap.get(item.reference) || null;
+
+                                            return (
+                                                <tr key={item.id} className="hover:bg-slate-50">
+                                                    <td className="px-4 py-2 border-r border-slate-100 font-mono text-slate-500 text-xs font-bold bg-slate-50/30">
+                                                        {item.id}
+                                                    </td>
+                                                    <td className="px-4 py-2 border-r border-slate-100 text-center">
+                                                        {idConsolidado ? (
+                                                            <span className="font-mono font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded text-xs">{idConsolidado}</span>
+                                                        ) : (
+                                                            <span className="text-xs text-slate-400 italic bg-slate-100 px-2 py-1 rounded">N/D</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-2 font-bold text-slate-700">{item.reference}</td>
+                                                    <td className="px-4 py-2 text-xs">
+                                                        <span className="bg-slate-100 px-2 py-1 rounded text-slate-600 font-bold">{item.category}</span>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right font-mono text-slate-600">{item.qtyMatriz.toLocaleString('pt-BR')}</td>
+                                                    <td className="px-4 py-2 text-right font-mono text-blue-600 text-xs border-r border-slate-100">
+                                                        {item.valMatriz > 0 ? item.valMatriz.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '-'}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right font-mono text-slate-600">{item.qtyFilial.toLocaleString('pt-BR')}</td>
+                                                    <td className="px-4 py-2 text-right font-mono text-purple-600 text-xs border-r border-slate-100">
+                                                        {item.valFilial > 0 ? item.valFilial.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '-'}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right font-bold text-green-700">{item.valTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center rounded-b-xl">
+                                <div className="flex gap-6 items-center">
+                                    <div className="text-xs text-slate-500 font-medium flex items-center">
+                                        <CheckCircle2 size={16} className="text-green-500 mr-2" />
+                                        {consolidatedData.length} registros prontos para validação.
+                                    </div>
+                                    <div className="h-4 w-px bg-slate-300"></div>
+                                    <div className="flex gap-4 text-xs font-bold text-slate-600">
+                                        <span className="text-orange-600">Total IPI: R$ {((summaryA?.totalIPI || 0) + (summaryB?.totalIPI || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                        <span className="text-indigo-700">Total Geral (Liq+IPI): R$ {(consolidatedSummary.totalValue + consolidatedSummary.totalIPI).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                </div>
+                                <div className="flex gap-3">
+                                    <button onClick={() => setShowPreviewModal(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg font-bold transition-colors">
+                                        Fechar
+                                    </button>
+                                    <button
+                                        onClick={() => handleSaveToDatabase(false)}
+                                        disabled={isSaving}
+                                        className={`px-4 py-2 text-white rounded-lg font-bold flex items-center transition-colors ${isSaving ? 'bg-slate-400' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                                    >
+                                        {isSaving ? <Loader2 className="animate-spin mr-2" size={16} /> : <Database size={16} className="mr-2" />}
+                                        {isSaving ? 'Salvando...' : 'Salvar no Banco'}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
             )}
 
-            {/* CONFIRMATION / WARNING MODAL */}
-            {showConfirmModal && (
-                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-md animate-in zoom-in-95">
-                    <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden border-2 border-orange-500">
-                        <div className="bg-orange-50 p-6 flex flex-col items-center text-center">
-                            <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-4">
-                                <AlertTriangle size={32} className="text-orange-600" />
-                            </div>
-                            <h3 className="text-xl font-bold text-orange-800 mb-2">Confirmação de Segurança</h3>
-                            <p className="text-slate-700 mb-6 font-medium">
-                                {showConfirmModal.message}
-                            </p>
-                            <p className="text-sm text-slate-500 mb-6">
-                                Deseja forçar a gravação mesmo assim? Isso irá registrar a diferença encontrada como movimentação do dia.
-                            </p>
+                    {/* CONFIRMATION / WARNING MODAL */}
+                    {showConfirmModal && (
+                        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-md animate-in zoom-in-95">
+                            <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden border-2 border-orange-500">
+                                <div className="bg-orange-50 p-6 flex flex-col items-center text-center">
+                                    <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-4">
+                                        <AlertTriangle size={32} className="text-orange-600" />
+                                    </div>
+                                    <h3 className="text-xl font-bold text-orange-800 mb-2">Confirmação de Segurança</h3>
+                                    <p className="text-slate-700 mb-6 font-medium">
+                                        {showConfirmModal.message}
+                                    </p>
+                                    <p className="text-sm text-slate-500 mb-6">
+                                        Deseja forçar a gravação mesmo assim? Isso irá registrar a diferença encontrada como movimentação do dia.
+                                    </p>
 
-                            <div className="flex gap-3 w-full">
-                                <button
-                                    onClick={() => setShowConfirmModal(null)}
-                                    className="flex-1 px-4 py-2 border border-slate-300 text-slate-600 rounded-lg font-bold hover:bg-slate-50"
-                                >
-                                    Cancelar
-                                </button>
-                                <button
-                                    onClick={() => handleSaveToDatabase(true)}
-                                    className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700"
-                                >
-                                    Confirmar e Salvar
-                                </button>
+                                    <div className="flex gap-3 w-full">
+                                        <button
+                                            onClick={() => setShowConfirmModal(null)}
+                                            className="flex-1 px-4 py-2 border border-slate-300 text-slate-600 rounded-lg font-bold hover:bg-slate-50"
+                                        >
+                                            Cancelar
+                                        </button>
+                                        <button
+                                            onClick={() => handleSaveToDatabase(true)}
+                                            className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700"
+                                        >
+                                            Confirmar e Salvar
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
+                            );
 };
-
-export default LegacyImportPage;
+                            export default LegacyImportPage;

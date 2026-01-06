@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { fetchMaterials, processStockTransaction, formatError, fetchProducts, fetchAllBOMs, adjustProductStock } from '../services/storage';
-import { RawMaterial, MaterialCategory, Product, ProductBOM } from '../types';
+import { fetchMaterials, processStockTransaction, formatError, fetchProducts, adjustProductStock } from '../services/storage';
+import { fetchAllActiveBOMs } from '../services/inventoryService';
+import { RawMaterial, MaterialCategory, Product, ProductBOMHeader } from '../types';
 import { Save, Search, AlertTriangle, CheckCircle2, Loader2, Box, ChevronRight, ArrowLeft, Info, Package } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -10,18 +11,18 @@ type FilterType = 'ALL' | 'raw_material' | 'packaging' | 'FINISHED_GOODS';
 
 const InventoryAuditPage: React.FC = () => {
     const { user } = useAuth();
-    
+
     // Data
     const [materials, setMaterials] = useState<RawMaterial[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
-    const [boms, setBoms] = useState<ProductBOM[]>([]);
+    const [boms, setBoms] = useState<ProductBOMHeader[]>([]);
     const [loading, setLoading] = useState(true);
-    
+
     // State Control
     const [viewContext, setViewContext] = useState<ViewContext>('MATERIALS');
     const [activeFilter, setActiveFilter] = useState<FilterType>('ALL');
     const [searchTerm, setSearchTerm] = useState('');
-    
+
     // Audit Data
     const [auditValues, setAuditValues] = useState<Record<string, string>>({}); // Key can be Material ID or Product Code (stringified)
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -37,7 +38,7 @@ const InventoryAuditPage: React.FC = () => {
             const [matData, prodData, bomData] = await Promise.all([
                 fetchMaterials(),
                 fetchProducts(),
-                fetchAllBOMs()
+                fetchAllActiveBOMs()
             ]);
             setMaterials(matData);
             setProducts(prodData);
@@ -54,7 +55,7 @@ const InventoryAuditPage: React.FC = () => {
     const handleFilterClick = (filter: FilterType) => {
         setSearchTerm(''); // Clear search on tab switch
         setAuditValues({}); // Clear current audit values to prevent mixup
-        
+
         if (filter === 'FINISHED_GOODS') {
             setViewContext('PRODUCTS');
             setActiveFilter('FINISHED_GOODS');
@@ -81,8 +82,8 @@ const InventoryAuditPage: React.FC = () => {
 
     const filteredItems = useMemo(() => {
         if (viewContext === 'PRODUCTS') {
-            return products.filter(p => 
-                (p.produto || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+            return products.filter(p =>
+                (p.produto || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                 p.codigo.toString().includes(searchTerm)
             );
         } else {
@@ -105,12 +106,12 @@ const InventoryAuditPage: React.FC = () => {
     });
 
     const showBOMDetails = (product: Product) => {
-        const productBOM = boms.filter(b => b.productCode === product.codigo);
-        if (productBOM.length === 0) {
+        const productBOM = boms.find(b => b.productCode === product.codigo.toString());
+        if (!productBOM || !productBOM.items || productBOM.items.length === 0) {
             alert(`O produto ${product.produto} não possui composição (BOM) cadastrada.`);
             return;
         }
-        const details = productBOM.map(b => `- ${b.material?.name}: ${b.quantityRequired} ${b.material?.unit}`).join('\n');
+        const details = productBOM.items.map(b => `- ${b.material?.name}: ${b.quantity} ${b.material?.unit}`).join('\n');
         alert(`Composição de ${product.produto}:\n\n${details}`);
     };
 
@@ -127,7 +128,7 @@ const InventoryAuditPage: React.FC = () => {
         setIsSubmitting(true);
         try {
             const auditBatchId = new Date().toISOString().slice(0, 19).replace('T', ' ');
-            
+
             for (const item of itemsWithChanges as any[]) {
                 const isProduct = viewContext === 'PRODUCTS';
                 const key = isProduct ? item.codigo.toString() : item.id;
@@ -178,12 +179,12 @@ const InventoryAuditPage: React.FC = () => {
 
             {/* BARRA DE FERRAMENTAS */}
             <div className="bg-white p-2 rounded-lg shadow-sm border border-slate-200 flex flex-col md:flex-row gap-2 items-center sticky top-0 z-30">
-                
+
                 {/* Busca */}
                 <div className="relative w-full md:w-48">
                     <Search className="absolute left-2.5 top-2 text-slate-400" size={14} />
-                    <input 
-                        type="text" 
+                    <input
+                        type="text"
                         placeholder={viewContext === 'PRODUCTS' ? "Buscar produto..." : "Busca material..."}
                         className="pl-8 pr-3 py-1.5 border border-slate-300 rounded text-xs w-full outline-none focus:border-brand-500 transition-all font-medium h-8"
                         value={searchTerm}
@@ -192,10 +193,10 @@ const InventoryAuditPage: React.FC = () => {
                 </div>
 
                 <div className="h-6 w-px bg-slate-200 hidden md:block mx-1"></div>
-                
+
                 {/* Botões de Filtro */}
                 <div className="flex space-x-2 overflow-x-auto w-full md:w-auto pb-1 md:pb-0 no-scrollbar items-center">
-                    
+
                     {[
                         { id: 'ALL', label: 'Todos os itens' },
                         { id: 'raw_material', label: 'Mat. Prima' },
@@ -204,11 +205,10 @@ const InventoryAuditPage: React.FC = () => {
                         <button
                             key={cat.id}
                             onClick={() => handleFilterClick(cat.id as any)}
-                            className={`px-3 py-1.5 rounded text-xs font-bold whitespace-nowrap transition-all border ${
-                                activeFilter === cat.id
-                                ? 'bg-slate-800 text-white border-slate-800' 
-                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                            }`}
+                            className={`px-3 py-1.5 rounded text-xs font-bold whitespace-nowrap transition-all border ${activeFilter === cat.id
+                                    ? 'bg-slate-800 text-white border-slate-800'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                                }`}
                         >
                             {cat.label}
                         </button>
@@ -217,11 +217,10 @@ const InventoryAuditPage: React.FC = () => {
                     {/* Botão PRODUTO como filtro (Mesmo estilo) */}
                     <button
                         onClick={() => handleFilterClick('FINISHED_GOODS')}
-                        className={`px-3 py-1.5 rounded text-xs font-bold whitespace-nowrap transition-all border flex items-center ${
-                            activeFilter === 'FINISHED_GOODS'
-                            ? 'bg-slate-800 text-white border-slate-800' 
-                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                        }`}
+                        className={`px-3 py-1.5 rounded text-xs font-bold whitespace-nowrap transition-all border flex items-center ${activeFilter === 'FINISHED_GOODS'
+                                ? 'bg-slate-800 text-white border-slate-800'
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                            }`}
                     >
                         Produtos
                     </button>
@@ -265,8 +264,8 @@ const InventoryAuditPage: React.FC = () => {
                                                         </div>
                                                     </div>
                                                     {isProduct && (
-                                                        <button 
-                                                            onClick={() => showBOMDetails(item)} 
+                                                        <button
+                                                            onClick={() => showBOMDetails(item)}
                                                             className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded"
                                                             title="Ver Composição (BOM)"
                                                         >
@@ -279,13 +278,12 @@ const InventoryAuditPage: React.FC = () => {
                                                 <span className="font-mono text-slate-600 font-medium">{stock.toLocaleString('pt-BR')}</span>
                                             </td>
                                             <td className="px-6 py-3 text-center bg-brand-50/10 p-2">
-                                                <input 
+                                                <input
                                                     type="number" step="0.001" placeholder="0"
-                                                    className={`w-28 text-center px-2 py-1.5 border rounded outline-none font-bold transition-all text-xs ${
-                                                        hasEntry 
-                                                            ? (diff !== 0 ? 'border-orange-400 bg-white text-orange-700 ring-2 ring-orange-100' : 'border-green-400 bg-green-50 text-green-700') 
+                                                    className={`w-28 text-center px-2 py-1.5 border rounded outline-none font-bold transition-all text-xs ${hasEntry
+                                                            ? (diff !== 0 ? 'border-orange-400 bg-white text-orange-700 ring-2 ring-orange-100' : 'border-green-400 bg-green-50 text-green-700')
                                                             : 'border-slate-300 focus:border-brand-500'
-                                                    }`}
+                                                        }`}
                                                     value={auditValues[key] || ''}
                                                     onChange={e => handleCountChange(key, e.target.value)}
                                                 />
@@ -294,12 +292,12 @@ const InventoryAuditPage: React.FC = () => {
                                                 {hasEntry ? (
                                                     <div className={`flex items-center justify-end font-bold ${diff === 0 ? 'text-green-600' : 'text-red-600'}`}>
                                                         {diff === 0 ? (
-                                                            <span className="flex items-center text-xs uppercase tracking-wider"><CheckCircle2 size={14} className="mr-1"/> OK</span>
+                                                            <span className="flex items-center text-xs uppercase tracking-wider"><CheckCircle2 size={14} className="mr-1" /> OK</span>
                                                         ) : (
                                                             <span>{diff && diff > 0 ? '+' : ''}{diff?.toLocaleString('pt-BR')} {unit}</span>
                                                         )}
                                                     </div>
-                                                ) : ( <span className="text-slate-300">-</span> )}
+                                                ) : (<span className="text-slate-300">-</span>)}
                                             </td>
                                         </tr>
                                     );
@@ -317,20 +315,20 @@ const InventoryAuditPage: React.FC = () => {
             <div className="fixed bottom-0 left-0 md:left-20 right-0 bg-white border-t border-slate-200 p-4 shadow-lg z-20 flex justify-between items-center animate-in slide-in-from-bottom-5">
                 <div className="hidden md:block">
                     <p className="text-xs text-slate-500">
-                        Contexto: <span className="font-bold text-slate-800">{viewContext === 'PRODUCTS' ? 'Produtos Acabados' : 'Materiais / Insumos'}</span> | 
-                        Listados: <span className="font-bold text-slate-800">{filteredItems.length}</span> | 
+                        Contexto: <span className="font-bold text-slate-800">{viewContext === 'PRODUCTS' ? 'Produtos Acabados' : 'Materiais / Insumos'}</span> |
+                        Listados: <span className="font-bold text-slate-800">{filteredItems.length}</span> |
                         Contados: <span className="font-bold text-brand-600">{Object.keys(auditValues).length}</span>
                     </p>
                 </div>
                 <div className="flex gap-4 w-full md:w-auto">
-                    <button 
-                        onClick={() => { if(confirm("Limpar contagens?")) setAuditValues({}); }}
+                    <button
+                        onClick={() => { if (confirm("Limpar contagens?")) setAuditValues({}); }}
                         disabled={Object.keys(auditValues).length === 0 || isSubmitting}
                         className="px-6 py-3 rounded-lg font-bold text-slate-500 hover:bg-slate-100 disabled:opacity-50 transition-colors text-xs uppercase tracking-wider"
                     >
                         Limpar
                     </button>
-                    <button 
+                    <button
                         onClick={handleFinalizeAudit}
                         disabled={itemsWithChanges.length === 0 || isSubmitting}
                         className="flex-1 md:flex-none px-8 py-3 bg-brand-600 text-white rounded-lg font-bold hover:bg-brand-700 disabled:opacity-50 shadow-lg flex items-center justify-center transition-all active:scale-95 text-sm"

@@ -13,12 +13,12 @@ const LogisticsPage: React.FC = () => {
     const [orders, setOrders] = useState<ShippingOrder[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
-    
+
     // Modal State
     const [modalOpen, setModalOpen] = useState(false);
     const [currentOrder, setCurrentOrder] = useState<ShippingOrder | null>(null);
     const [orderItems, setOrderItems] = useState<ShippingItem[]>([]);
-    
+
     // Form Inputs
     const [customer, setCustomer] = useState('');
     const [orderNum, setOrderNum] = useState('');
@@ -26,7 +26,7 @@ const LogisticsPage: React.FC = () => {
     const [status, setStatus] = useState<'PENDING' | 'SEPARATED' | 'SHIPPED'>('PENDING');
 
     // Item Add
-    const [newItemProd, setNewItemProd] = useState<number | null>(null);
+    const [newItemProd, setNewItemProd] = useState<string>('');
     const [newItemQty, setNewItemQty] = useState('');
 
     useEffect(() => { loadData(); }, []);
@@ -34,11 +34,11 @@ const LogisticsPage: React.FC = () => {
     const loadData = async () => {
         setLoading(true);
         try {
-             const ords = await fetchShippingOrders();
-             const prods = await fetchProducts();
-             setOrders(ords);
-             setProducts(prods);
-        } catch(e) { console.error(e); }
+            const ords = await fetchShippingOrders();
+            const prods = await fetchProducts();
+            setOrders(ords);
+            setProducts(prods);
+        } catch (e) { console.error(e); }
         setLoading(false);
     };
 
@@ -121,9 +121,9 @@ const LogisticsPage: React.FC = () => {
                     <h2 className="text-2xl font-bold text-slate-800">Logística e Expedição</h2>
                     <p className="text-slate-500">Gerenciamento de Pedidos e Saída de Materiais</p>
                 </div>
-                
+
                 {/* Shortcut to the new Import Page */}
-                <button 
+                <button
                     onClick={() => navigate('/logistics/import')}
                     className="bg-white text-slate-600 border border-slate-300 px-4 py-2 rounded-lg font-bold hover:bg-slate-50 shadow-sm flex items-center transition-all"
                 >
@@ -145,21 +145,20 @@ const LogisticsPage: React.FC = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {orders.length === 0 && <div className="text-slate-400 col-span-3 text-center py-10 border border-dashed rounded-xl">Nenhum pedido registrado.</div>}
                         {orders.map(order => (
-                            <div 
-                                key={order.id} 
+                            <div
+                                key={order.id}
                                 onClick={() => handleOpenOrder(order)}
                                 className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow cursor-pointer group relative"
                             >
                                 <div className="flex justify-between items-start mb-2">
-                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
-                                        order.status === 'SHIPPED' ? 'bg-green-100 text-green-700' : 
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${order.status === 'SHIPPED' ? 'bg-green-100 text-green-700' :
                                         order.status === 'SEPARATED' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'
-                                    }`}>
+                                        }`}>
                                         {order.status === 'PENDING' ? 'Pendente' : order.status === 'SEPARATED' ? 'Separado' : 'Expedido'}
                                     </span>
-                                    <Trash2 
-                                        size={16} 
-                                        className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100" 
+                                    <Trash2
+                                        size={16}
+                                        className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
                                         onClick={(e) => { e.stopPropagation(); handleDeleteOrder(order.id); }}
                                     />
                                 </div>
@@ -183,9 +182,9 @@ const LogisticsPage: React.FC = () => {
                                 <Truck className="mr-2 text-brand-600" />
                                 {currentOrder ? 'Editar Expedição' : 'Novo Pedido de Expedição'}
                             </h3>
-                            <button onClick={() => setModalOpen(false)}><X className="text-slate-400 hover:text-slate-600" /></button>
+                            <button onClick={() => setModalOpen(false)} title="Fechar" aria-label="Fechar"><X className="text-slate-400 hover:text-slate-600" /></button>
                         </div>
-                        
+
                         <div className="flex-1 overflow-y-auto p-6 space-y-6">
                             {/* Header Form */}
                             <form onSubmit={handleSaveHeader} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end bg-slate-50 p-4 rounded-lg border border-slate-100">
@@ -194,7 +193,7 @@ const LogisticsPage: React.FC = () => {
                                 </div>
                                 <Input label="Nº Pedido" value={orderNum} onChange={e => setOrderNum(e.target.value)} />
                                 <Input label="Data Prevista" type="date" value={date} onChange={e => setDate(e.target.value)} required />
-                                
+
                                 <div className="md:col-span-2">
                                     <label className="text-sm font-semibold text-slate-700">Status</label>
                                     <div className="flex space-x-2 mt-1">
@@ -203,11 +202,10 @@ const LogisticsPage: React.FC = () => {
                                                 key={s}
                                                 type="button"
                                                 onClick={() => setStatus(s as any)}
-                                                className={`flex-1 py-2 text-xs font-bold rounded border ${
-                                                    status === s 
-                                                    ? 'bg-brand-600 text-white border-brand-600' 
+                                                className={`flex-1 py-2 text-xs font-bold rounded border ${status === s
+                                                    ? 'bg-brand-600 text-white border-brand-600'
                                                     : 'bg-white text-slate-500 border-slate-300 hover:bg-slate-50'
-                                                }`}
+                                                    }`}
                                             >
                                                 {s === 'PENDING' ? 'PENDENTE' : s === 'SEPARATED' ? 'SEPARADO' : 'ENVIADO'}
                                             </button>
@@ -223,7 +221,7 @@ const LogisticsPage: React.FC = () => {
                             {currentOrder && (
                                 <div className="space-y-4">
                                     <h4 className="font-bold text-slate-700 border-b pb-2">Itens do Pedido</h4>
-                                    
+
                                     <table className="w-full text-sm text-left">
                                         <thead className="bg-slate-50 text-slate-600">
                                             <tr>
@@ -241,7 +239,7 @@ const LogisticsPage: React.FC = () => {
                                                     </td>
                                                     <td className="px-4 py-2 font-mono font-bold text-slate-700">{item.quantity}</td>
                                                     <td className="px-4 py-2 text-right">
-                                                        <button onClick={() => handleDeleteItem(item.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16} /></button>
+                                                        <button onClick={() => handleDeleteItem(item.id)} className="text-red-500 hover:text-red-700" title="Excluir Item" aria-label="Excluir Item"><Trash2 size={16} /></button>
                                                     </td>
                                                 </tr>
                                             ))}
@@ -252,10 +250,12 @@ const LogisticsPage: React.FC = () => {
                                     <form onSubmit={handleAddItem} className="flex gap-4 items-end bg-blue-50 p-4 rounded-lg border border-blue-100">
                                         <div className="flex-1">
                                             <label className="text-xs font-bold text-slate-500 uppercase">Adicionar Produto</label>
-                                            <select 
+                                            <select
                                                 className="w-full p-2 border rounded text-sm mt-1"
                                                 value={newItemProd || ''}
-                                                onChange={e => setNewItemProd(Number(e.target.value))}
+                                                onChange={e => setNewItemProd(e.target.value)}
+                                                title="Selecione um Produto"
+                                                aria-label="Selecione um Produto"
                                             >
                                                 <option value="">Selecione...</option>
                                                 {products.filter(p => p.type === 'FINISHED').map(p => (
@@ -266,7 +266,7 @@ const LogisticsPage: React.FC = () => {
                                         <div className="w-32">
                                             <Input label="Qtd" type="number" value={newItemQty} onChange={e => setNewItemQty(e.target.value)} placeholder="0" />
                                         </div>
-                                        <button type="submit" className="h-[42px] bg-blue-600 text-white px-4 rounded font-bold hover:bg-blue-700 flex items-center">
+                                        <button type="submit" className="h-[42px] bg-blue-600 text-white px-4 rounded font-bold hover:bg-blue-700 flex items-center" title="Adicionar Item" aria-label="Adicionar Item">
                                             <Plus size={18} />
                                         </button>
                                     </form>

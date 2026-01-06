@@ -47,22 +47,9 @@ export const createProductionOrder = async (dto: CreateProductionOrderDTO): Prom
         console.warn("Roteiro não encontrado para o produto.");
     }
 
-    // 3. Fetch Active BOM (Lista de Materiais)
-    // Assuming fetchBOM from inventoryService returns the BOM structure
-    // We need to query bom_headers and bom_items manually here to ensure we get the right version
-    // Or reuse existing service if it fits. Let's query directly for snapshotting.
-
-    // Find latest active BOM
-    // Find latest active BOM
-    // Fix: access 'code' directly from DB result, not mapped 'product.codigo' which might be undefined
-    const productCodeStr = (productData as any).code;
-
-    const { data: bomData } = await supabase
-        .from('product_bom') // Corrected table name
-        // .select('*') // We need to be careful with column selections if schema changed
-        .select('*')
-        .eq('organization_id', orgId)
-        .eq('product_code', productCodeStr);
+    // 3. Fetch Active BOM (Lista de Materiais) - Optional Check / Optimization
+    // Assuming calculateMRP will handle BOM explosion logic later.
+    // We removed the manual legacy fetch here to avoid confusion with new structure.
 
     // --- TRANSACTION START (Virtual) ---
     // Supabase JS doesn't support complex Transactions easily on client side yet without RPC.
