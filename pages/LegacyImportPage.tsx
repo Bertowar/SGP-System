@@ -428,7 +428,7 @@ const LegacyImportPage: React.FC = () => {
                                     {activeTab === 'A' ? 'Carregar Matriz' : 'Carregar Filial'}
                                     <input type="file" accept=".txt,.csv" className="hidden" onChange={handleFileUpload} disabled={currentReport.length > 0} />
                                 </label>
-                                {currentReport.length > 0 && <button onClick={handleClear} className="p-2 border rounded-lg hover:text-red-600"><Trash2 size={18} /></button>}
+                                {currentReport.length > 0 && <button onClick={handleClear} className="p-2 border rounded-lg hover:text-red-600" title="Limpar relatório" aria-label="Limpar relatório"><Trash2 size={18} /></button>}
                             </>
                         )}
                     </div>
@@ -477,7 +477,7 @@ const LegacyImportPage: React.FC = () => {
             {showPreviewModal && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl flex flex-col max-h-[90vh]">
-                        <div className="p-4 border-b bg-slate-50 flex justify-between items-center"><h3 className="text-lg font-bold">Pré-visualização para Gravação</h3><button onClick={() => setShowPreviewModal(false)} className="p-2 hover:bg-slate-200 rounded-full"><X size={24} /></button></div>
+                        <div className="p-4 border-b bg-slate-50 flex justify-between items-center"><h3 className="text-lg font-bold">Pré-visualização para Gravação</h3><button onClick={() => setShowPreviewModal(false)} className="p-2 hover:bg-slate-200 rounded-full" title="Fechar pré-visualização" aria-label="Fechar pré-visualização"><X size={24} /></button></div>
                         <div className="flex-1 overflow-auto p-4">
                             <table className="w-full text-sm text-left"><thead className="bg-slate-50 font-bold border-b"><tr><th className="px-4 py-2">Referência</th><th className="px-4 py-2 text-right">Qtd Matriz</th><th className="px-4 py-2 text-right">Qtd Filial</th><th className="px-4 py-2 text-right">Valor Total</th></tr></thead><tbody>{productSummaryData.map((item, idx) => (<tr key={idx} className="border-b"><td className="px-4 py-2 font-bold">{item.reference}</td><td className="px-4 py-2 text-right">{item.qtyMatriz.toLocaleString('pt-BR')}</td><td className="px-4 py-2 text-right">{item.qtyFilial.toLocaleString('pt-BR')}</td><td className="px-4 py-2 text-right font-bold text-green-700">R$ {item.valTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td></tr>))}</tbody></table>
                         </div>

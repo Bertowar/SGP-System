@@ -1,7 +1,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { getUserProfile, signIn as supabaseSignIn, signOut as supabaseSignOut } from '../services/auth';
+import { getUserProfile, signIn as supabaseSignIn, signOut as supabaseSignOut, switchOrganization } from '../services/auth';
 import { UserProfile, Organization } from '../types';
 import { Session } from '@supabase/supabase-js';
 
@@ -198,7 +198,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const switchOrg = async (orgId: string) => {
     try {
       setLoading(true);
-      await import('../services/auth').then(m => m.switchOrganization(orgId));
+      await switchOrganization(orgId);
       await refreshProfile();
       // Optional: reload page to ensure clean state
       // window.location.reload(); 

@@ -11,7 +11,9 @@ import { MRPPlanItem } from '../types';
 import { Input, Textarea } from '../components/Input';
 import { ProductSelect } from '../components/ProductSelect';
 // import { createProductionOrder } from '../services/productionService';
-import ProductionOrderDetailsModal from '../components/ProductionOrderDetailsModal';
+import { lazy } from '../lazy';
+
+const ProductionOrderDetailsModal = lazy(() => import('../components/ProductionOrderDetailsModal'));
 import { MRPTreeNode } from '../components/MRPTreeNode';
 
 import { useAuth } from '../contexts/AuthContext';
@@ -905,11 +907,13 @@ const ProductionPlanPage: React.FC = () => {
             {/* MODAL DETALHES (PHASE 2) */}
             {
                 detailsModalOpen && selectedOpId && (
-                    <ProductionOrderDetailsModal
-                        opId={selectedOpId}
-                        onClose={() => setDetailsModalOpen(false)}
-                        onUpdate={loadData}
-                    />
+                    <React.Suspense fallback={<div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/20 backdrop-blur-sm"><Loader2 className="animate-spin text-white" size={48} /></div>}>
+                        <ProductionOrderDetailsModal
+                            opId={selectedOpId}
+                            onClose={() => setDetailsModalOpen(false)}
+                            onUpdate={loadData}
+                        />
+                    </React.Suspense>
                 )
             }
         </div >

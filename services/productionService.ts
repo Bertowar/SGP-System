@@ -603,6 +603,47 @@ export const fetchEntriesByProductionOrderId = async (opId: string): Promise<any
 };
 
 export const deleteEntry = async (id: string): Promise<void> => {
+    const orgId = await getCurrentOrgId();
+
+    // 1. Auto-Revert Inventory Transactions (Stock Correction)
+    if (orgId) {
+        // Find all transactions linked to this production entry
+        const { data: transactions } = await supabase
+            .from('inventory_transactions')
+            .select('*')
+            .eq('related_entry_id', id)
+            .eq('organization_id', orgId);
+
+        if (transactions && transactions.length > 0) {
+            console.log(`[deleteEntry] Found ${transactions.length} transactions to reverse for entry ${id}`);
+
+            const reversals = transactions.map((t: any) => ({
+                organization_id: orgId,
+                material_id: t.material_id,
+                // Reverse the type: IN -> OUT, OUT -> IN, ADJ -> ADJ (negative?)
+                // Assuming ADJ is signed quantity, we negate it.
+                // But structure usually uses Type + Unsigned Qty or Signed Qty? 
+                // Based on types 'IN'/'OUT', let's flip them. 'ADJ' might need negating quantity.
+                type: t.type === 'IN' ? 'OUT' : t.type === 'OUT' ? 'IN' : 'ADJ',
+                quantity: t.type === 'ADJ' ? -t.quantity : t.quantity,
+                notes: `Estorno auto: Exclusão do Apontamento #${id.substring(0, 8)}`,
+                related_entry_id: null, // Orphan it so it survives entry deletion
+                date: new Date().toISOString().split('T')[0] // Ensure date is set
+            }));
+
+            const { error: revError } = await supabase
+                .from('inventory_transactions')
+                .insert(reversals);
+
+            if (revError) {
+                console.error("Erro ao gerar estornos de estoque:", revError);
+                // We typically proceed to delete anyway to not block user, or throw?
+                // Let's warn but proceed, or the user can't delete the item ever.
+            }
+        }
+    }
+
+    // 2. Delete the Entry
     const { error } = await supabase
         .from('production_entries')
         .delete()

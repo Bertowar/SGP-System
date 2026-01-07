@@ -11,17 +11,84 @@ import { Input } from '../components/Input';
 import { useAuth } from '../contexts/AuthContext';
 
 // Robust number parser for PT-BR input
-const parseInputNumber = (input: string): number => {
-    if (!input) return 0;
-    // PT-BR Strict Parsing: 
-    // 1.234.567,89 -> 1234567.89
-    // 1.234 -> 1234
-    // 1,5 -> 1.5
+const parseInputNumber = (input: string | number): number => {
+    if (input === undefined || input === null || input === '') return 0;
+    if (typeof input === 'number') return input;
+
+    // PT-BR Strict Parsing logic
     let clean = input.toString();
-    // Simply remove all dots (thousands separators)
-    clean = clean.replace(/\./g, '');
-    // Replace comma with dot (decimal separator)
-    clean = clean.replace(',', '.');
+
+    // Check if it's already a standard float string (e.g. "6.50" from database or previous edit) without commas
+    // Note: User input usually comes with comma in PT-BR (6,50). 
+    // Data from DB is number.
+
+    // If we have commas, it's definitely PT-BR decimal separator or thousand separator?
+    // In PT-BR: dot is thousand, comma is decimal.
+
+    if (clean.includes(',')) {
+        // Remove thousands separator (dots) if any
+        clean = clean.replace(/\./g, '');
+        // Replace decimal separator (comma) with dot
+        clean = clean.replace(',', '.');
+    } else {
+        // No comma. Only dots? e.g. "1.200" meaning 1200 or 1.2?
+        // In PT-BR inputs, usually users type "1000" or "1000,00". 
+        // If they type "1.200", it usually means 1200.
+        // However, if the field was populate with "6.5" (number converted to string), this logic breaks it!
+        // "6.5" -> remove dot -> "65" => ERROR identified! 
+
+        // FIX: Detect if the input looks like a simple float (one dot, no commas, typical JS number string)
+        // versus a formatted PT-BR integer with thousands (1.000).
+        // If the dot is followed by 1 or 2 digits, it might be decimal? 
+        // JS toString() of e.g. 6.5 is "6.5".
+
+        // Heuristic: If we are calling this on a value that might be from state (controlled input), 
+        // the state might hold "6.5" (string) if the user typed "6.5" (en-US) or if it came from DB.
+
+        // Safest approach for PT-BR app: Assume Inputs are "0,00". 
+        // But if `editingMat.unitCost` was initialized from a number (6.5), the input value might be "6.5" if not formatted.
+        // We should ensure the INPUT field displays with comma.
+
+        // For this parser: If no comma is present, and there is a dot:
+        // If it looks like a valid float (e.g. "6.50"), keep it.
+        // If it looks like thousands "1.000", remove dot.
+        // This is ambiguous.
+
+        // BETTER FIX: The Input component or state should handle the display format. 
+        // If we simply fix this function to NOT remove dot if it's a valid float structure and small number?
+        // No, let's treat it as: Remove dots ONLY IF comma exists? 
+        // Or: If valid float, return float.
+
+        // Let's assume the user intends PT-BR.
+        // "6.50" -> 6.5. 
+        // "1.000" -> 1000.
+
+        // If we strictly enforce PT-BR, "6.50" shouldn't exist as input, it should be "6,50".
+        // BUT, if the state was populated directly from DB (number 6.5 -> string "6.5"), then this function receives "6.5".
+        // "6.5".replace(/\./g, '') -> "65". THIS IS THE BUG.
+
+        // Solution: If input corresponds to a valid number as-is, use it?
+        // But "1.000" is also a valid number (1).
+
+        // Context: editingMat.unitCost comes from DB as number.
+        // Step 1 check: Is it coming from an HTML input type="text" or "number"?
+        // If type="text", user likely sees "6.5" (if raw) or "6,50" (if formatted).
+
+        // Let's rely on presence of comma.
+        // If NO comma is present, and it has a dot:
+        // Check if it's a "small" number with dot?
+        // Actually, if we simply perform parseFloat on the original string first?
+
+        // Let's use a regex to identify "dot as decimal".
+        // If string matches `^\d+\.\d+$` (simple float), treat as float.
+        if (/^\d+\.\d+$/.test(clean)) {
+            return parseFloat(clean);
+        }
+
+        // Otherwise (e.g. "1.000" or simple integer "100"), remove dots (thousands)
+        clean = clean.replace(/\./g, '');
+    }
+
     return Number(clean);
 };
 

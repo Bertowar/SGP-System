@@ -1012,11 +1012,11 @@ export const processScrapGeneration = async (entry: ProductionEntry): Promise<vo
     let notes = '';
 
     if (machine.sector === 'Extrusão') {
-        // EXTRUSÃO: Considera o Refile + Borra informado manualmente no metaData
+        // EXTRUSÃO: Ajuste Regra de Negócio: Apenas Refile retorna ao estoque (moído). Borra é perda total.
         const refile = Number(entry.metaData?.extrusion?.refile) || 0;
-        const borra = Number(entry.metaData?.extrusion?.borra) || 0;
-        scrapQty = refile + borra;
-        notes = `Retorno Extrusão (Refile: ${refile} + Borra: ${borra}) - Reg #${entry.id.substring(0, 8)}`;
+        // const borra = Number(entry.metaData?.extrusion?.borra) || 0; // Borra ignored for stock return
+        scrapQty = refile;
+        notes = `Retorno Extrusão (Refile: ${refile}) - Reg #${entry.id.substring(0, 8)}`;
     } else if (machine.sector === 'Termoformagem') {
         // TERMOFORMAGEM: Peso da Bobina (measuredWeight) - (Peso Teórico * Qtd Produzida)
         // unitWeight vem do produto (peso líquido em gramas?)

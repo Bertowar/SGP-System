@@ -450,8 +450,8 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
                         </div>
                         <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden mb-2">
                             <div
-                                className="h-full bg-brand-600 rounded-full transition-all duration-1000 ease-out"
-                                style={{ width: `${progressPct}%` }}
+                                className="h-full bg-brand-600 rounded-full transition-all duration-1000 ease-out origin-left [transform:scaleX(var(--progress))]"
+                                style={{ '--progress': progressPct / 100 } as React.CSSProperties}
                             ></div>
                         </div>
                         <div className="flex justify-between items-center text-xs">
@@ -734,8 +734,8 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
                                                                                 </div>
                                                                                 <div className="w-full h-4 bg-slate-50 rounded-full border border-slate-200 p-0.5 relative overflow-hidden shadow-inner">
                                                                                     <div
-                                                                                        className={`h-full rounded-full transition-all duration-500 shadow-sm ${item.pct > 100 ? 'bg-red-500' : item.pct > 80 ? 'bg-green-500' : 'bg-yellow-400'}`}
-                                                                                        style={{ width: `${Math.min(100, item.pct)}%` }}
+                                                                                        className={`h-full rounded-full transition-all duration-500 shadow-sm ${item.pct > 100 ? 'bg-red-500' : item.pct > 80 ? 'bg-green-500' : 'bg-yellow-400'} origin-left [transform:scaleX(var(--progress))]`}
+                                                                                        style={{ '--progress': Math.min(100, item.pct) / 100 } as React.CSSProperties}
                                                                                     ></div>
                                                                                 </div>
                                                                             </td>
