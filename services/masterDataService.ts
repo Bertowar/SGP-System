@@ -308,14 +308,15 @@ export const deleteProductCategory = async (id: string): Promise<void> => {
 export const fetchSectors = async (): Promise<Sector[]> => {
   try {
     const orgId = await getCurrentOrgId();
-    const { data, error } = await supabase.from('sectors').select('*').eq('active', true).eq('organization_id', orgId).order('name');
+    const { data, error } = await supabase.from('sectors').select('*').eq('active', true).eq('organization_id', orgId).order('display_order', { ascending: true }).order('name');
     if (error) throw error;
     if (!data) return [];
     return data.map((d: any) => ({
       id: d.id,
       name: d.name,
       active: d.active,
-      isProductive: d.is_productive || false
+      isProductive: d.is_productive || false,
+      displayOrder: d.display_order // NEW
     }));
   } catch (e) { return []; }
 };
@@ -327,6 +328,7 @@ export const saveSector = async (sector: Sector): Promise<void> => {
     name: sector.name,
     active: true,
     is_productive: sector.isProductive || false,
+    display_order: sector.displayOrder, // NEW
     organization_id: orgId
   }]);
 };

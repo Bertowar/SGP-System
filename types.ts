@@ -56,6 +56,7 @@ export interface Sector {
   name: string;
   active: boolean;
   isProductive?: boolean; // NEW: Indica se é um setor produtivo (Checkbox)
+  displayOrder?: number; // NEW: Ordem de exibição
 }
 
 export interface Machine {

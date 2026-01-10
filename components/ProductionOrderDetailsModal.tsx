@@ -8,6 +8,7 @@ import { recordWorkOrderActivity } from '../services/workOrderService';
 import { formatNumber } from '../services/utils';
 import { X, Calendar, Package, Clock, CheckCircle2, AlertCircle, Play, Layers, Boxes, User, ArrowRight, Activity, CheckSquare, Scale, History } from 'lucide-react';
 import { ProgressBar } from './ProgressBar';
+import ProductionEntryMockup from './ProductionEntryMockup';
 
 interface ProductionOrderDetailsModalProps {
     opId: string;
@@ -28,6 +29,7 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
     const [reportingStepId, setReportingStepId] = useState<string | null>(null);
     const [reportForm, setReportForm] = useState({ ok: '', nok: '', operatorId: '' });
     const [activeBOM, setActiveBOM] = useState<any | null>(null);
+    const [showMockup, setShowMockup] = useState(false);
 
     // Determine context (Extrusion vs Others)
     const currentMachine = machines.find(m => m.id === op?.machineId) || machines.find(m => m.code === op?.machineId);
@@ -452,6 +454,14 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
                                     Finalizar OP
                                 </button>
                             )}
+                            <button
+                                onClick={() => setShowMockup(true)}
+                                className="ml-2 flex items-center gap-1 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-3 py-1.5 rounded transition-colors shadow-sm animate-pulse"
+                                title="Visualizar Nova Tela"
+                            >
+                                <Activity size={14} />
+                                Simular Extrusão
+                            </button>
                         </div>
                     </div>
 
@@ -915,6 +925,7 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
                     )}
                 </div>
             </div >
+            {showMockup && <ProductionEntryMockup onClose={() => setShowMockup(false)} />}
         </div >
     );
 };

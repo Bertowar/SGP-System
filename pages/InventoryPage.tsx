@@ -141,6 +141,10 @@ const InventoryPage: React.FC = () => {
     const [selectedMat, setSelectedMat] = useState<RawMaterial | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    // NEW: Product Import Logic
+    const [products, setProducts] = useState<any[]>([]);
+    const [importMode, setImportMode] = useState(false);
+
     // UI State for Group Creation (Split Logic)
     const [groupMode, setGroupMode] = useState<'SELECT' | 'CREATE'>('SELECT');
     // UI State for Category Creation
@@ -174,12 +178,14 @@ const InventoryPage: React.FC = () => {
     const loadData = async () => {
         setLoading(true);
         try {
-            const [matData, trxData] = await Promise.all([
+            const [matData, trxData, prodData] = await Promise.all([
                 fetchMaterials(user?.organizationId),
-                fetchInventoryTransactions(user?.organizationId)
+                fetchInventoryTransactions(user?.organizationId),
+                fetchProducts()
             ]);
             setMaterials(matData);
             setTransactions(trxData);
+            setProducts(prodData);
         } catch (e) {
             console.error(e);
         } finally {
@@ -410,8 +416,10 @@ const InventoryPage: React.FC = () => {
         // Pre-fill group if inside a group view
         const defaultGroup = selectedGroup && selectedGroup !== 'Diversos' ? selectedGroup : 'Diversos';
         setEditingMat({ id: '', code: '', name: '', unit: 'kg', currentStock: 0, minStock: 100, unitCost: 0, category: 'raw_material', group: defaultGroup, leadTime: 0 });
+        setEditingMat({ id: '', code: '', name: '', unit: 'kg', currentStock: 0, minStock: 100, unitCost: 0, category: 'raw_material', group: defaultGroup, leadTime: 0 });
         setGroupMode('SELECT'); // Reset to selection mode
         setCategoryMode('SELECT');
+        setImportMode(false); // Default to Manual
         setModalOpen(true);
     };
 
@@ -855,20 +863,104 @@ const InventoryPage: React.FC = () => {
             {modalOpen && editingMat && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 backdrop-blur-sm animate-in fade-in">
                     <div className="bg-white rounded-xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-                        <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
-                            <h3 className="font-bold text-slate-800">{editingMat.id ? 'Editar Item de Estoque' : 'Novo Item de Estoque'}</h3>
-                            <button onClick={() => setModalOpen(false)} aria-label="Fechar" title="Fechar"><X className="text-slate-400 hover:text-slate-600" /></button>
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="font-bold text-slate-800 text-lg">
+                                {editingMat.id ? 'Editar Item' : 'Novo Item de Estoque'}
+                            </h3>
+                            {!editingMat.id && (
+                                <div className="flex bg-slate-100 p-1 rounded-lg">
+                                    <button
+                                        onClick={() => setImportMode(false)}
+                                        className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${!importMode ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                                    >
+                                        Manual
+                                    </button>
+                                    <button
+                                        onClick={() => setImportMode(true)}
+                                        className={`px-3 py-1 text-xs font-bold rounded-md transition-all flex items-center gap-1 ${importMode ? 'bg-white shadow text-brand-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                    >
+                                        <Zap size={12} /> Importar Produto
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
                         <div className="p-6 overflow-y-auto">
                             <form onSubmit={handleSaveMaterial} className="space-y-6">
 
+                                {/* IMPORT SELECTION (FIRST STEP) */}
+                                {importMode && !editingMat.id && (
+                                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mb-6 animate-in slide-in-from-top-2">
+                                        <label className="text-sm font-bold text-blue-800 mb-2 block flex items-center gap-2">
+                                            <Search size={16} /> 1º Passo: Buscar no Cadastro de Produtos (Engenharia)
+                                        </label>
+                                        <select
+                                            className="w-full px-3 py-2 border border-blue-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-400 outline-none font-bold text-slate-700"
+                                            onChange={(e) => {
+                                                const selectedCode = String(e.target.value);
+                                                const prod = products.find(p => String(p.codigo) === selectedCode);
+
+                                                if (prod) {
+                                                    // CHECK CONFLICTS
+                                                    const conflictItem = materials.find(m => String(m.code) === selectedCode);
+
+                                                    if (conflictItem) {
+                                                        // Case 1: Same Code AND Same Name (Likely the same item) -> FORCE EDIT
+                                                        if (conflictItem.name.trim().toLowerCase() === prod.produto.trim().toLowerCase()) {
+                                                            setEditingMat(conflictItem);
+                                                            if (conflictItem.group && conflictItem.group !== 'Diversos') {
+                                                                setSelectedGroup(conflictItem.group);
+                                                            }
+                                                            toast.info(`Item já cadastrado! Carregando modo de edição.`);
+                                                        }
+                                                        // Case 2: Same Code BUT Different Name (SKU Conflict) -> ALLOW NEW but WARN
+                                                        else {
+                                                            setEditingMat({
+                                                                ...editingMat,
+                                                                id: '', // New Item
+                                                                code: prod.codigo ? String(prod.codigo) : '',
+                                                                name: prod.produto,
+                                                                unit: prod.unit || 'un',
+                                                                unitCost: prod.custoUnit || 0,
+                                                                category: 'raw_material'
+                                                            });
+                                                            toast.warning(`Conflito: O código "${selectedCode}" já é usado pelo item "${conflictItem.name}". Altere o código deste novo item para poder salvar.`);
+                                                        }
+                                                    } else {
+                                                        // Case 3: No Conflict -> Clean Import
+                                                        setEditingMat({
+                                                            ...editingMat,
+                                                            code: prod.codigo ? String(prod.codigo) : '',
+                                                            name: prod.produto,
+                                                            unit: prod.unit || 'un',
+                                                            unitCost: prod.custoUnit || 0,
+                                                            category: 'raw_material'
+                                                        });
+                                                        toast.success("Dados importados! Preencha a família e salve.");
+                                                    }
+                                                }
+                                            }}
+                                            defaultValue=""
+                                        >
+                                            <option value="" disabled>Selecione um produto para auto-preencher...</option>
+                                            {products.map(p => (
+                                                <option key={p.id} value={p.codigo}>
+                                                    {p.codigo} - {p.produto}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <p className="text-[10px] text-blue-600 mt-2 ml-1">
+                                            *Isso preencherá automaticamente: Código, Descrição, Unidade e Custo.
+                                        </p>
+                                    </div>
+                                )}
+
                                 {/* 1. GROUP SELECTION SECTION (With Tabs) */}
-                                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                                     <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-2">
-                                        <label className="text-sm font-bold text-blue-800 flex items-center">
-                                            <Layers size={18} className="mr-2 text-blue-600" />
-                                            Classificação (Família / Pai)
+                                        <label className="text-sm font-bold text-slate-700 flex items-center">
+                                            <Layers size={18} className="mr-2 text-slate-500" />
+                                            2º Passo: Classificação (Família / Pai)
                                         </label>
 
                                         {/* Group Tabs */}

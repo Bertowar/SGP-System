@@ -47,23 +47,29 @@ const EntryForm: React.FC = () => {
     // Refs for Mix Inputs (to handle Enter navigation)
     const mixInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
+    const { data: sectors = [] } = useSectors();
+
     // FILTRO DE SETORES DINÂMICO
     // Garante que mostramos todos os setores das máquinas cadastradas,
-    // mas mantemos a ordem preferencial para SGP Master (Extrusão, Termoformagem...).
+    // usando a ordem de exibição definida no cadastro (displayOrder).
     const displayedSectors = useMemo(() => {
-        const uniqueSectors = Array.from(new Set(machines.map(m => m.sector))).filter(Boolean);
-        const priority = ['Extrusão', 'Termoformagem'];
+        // Get unique sector names from machines
+        const uniqueSectorNames = Array.from(new Set(machines.map(m => m.sector))).filter(Boolean);
 
-        return uniqueSectors.sort((a: any, b: any) => {
-            const idxA = priority.indexOf(a);
-            const idxB = priority.indexOf(b);
+        return uniqueSectorNames.sort((a: any, b: any) => {
+            const sectorA = sectors.find(s => s.name === a);
+            const sectorB = sectors.find(s => s.name === b);
 
-            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-            if (idxA !== -1) return -1;
-            if (idxB !== -1) return 1;
+            // Sort by displayOrder if available
+            const orderA = sectorA?.displayOrder ?? 9999;
+            const orderB = sectorB?.displayOrder ?? 9999;
+
+            if (orderA !== orderB) return orderA - orderB;
+
+            // Fallback to name
             return a.localeCompare(b);
         });
-    }, [machines]);
+    }, [machines, sectors]);
 
     // Current Date Helper
     const today = new Date().toISOString().split('T')[0];
