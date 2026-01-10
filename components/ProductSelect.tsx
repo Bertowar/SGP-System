@@ -56,13 +56,18 @@ export const ProductSelect: React.FC<ProductSelectProps> = ({ products, value, o
     onChange(product.codigo);
     setIsOpen(false);
     setSearchTerm('');
-    // Return focus to trigger so Tab flow continues naturally? 
-    // Or move to next field directly.
+
+    // Prevent re-opening when we programmatically focus the trigger
+    skipFocusOpenRef.current = true;
+
     if (onNext) {
       setTimeout(() => onNext(), 50);
     } else {
       actualTriggerRef.current?.focus();
     }
+
+    // Reset the skip ref after a short delay so future interactions work
+    setTimeout(() => { skipFocusOpenRef.current = false; }, 200);
   };
 
   const handleInputKeyDown = (e: React.KeyboardEvent) => {
@@ -131,6 +136,8 @@ export const ProductSelect: React.FC<ProductSelectProps> = ({ products, value, o
                 <button
                   onClick={() => setSearchTerm('')}
                   className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+                  aria-label="Limpar busca"
+                  title="Limpar busca"
                 >
                   <X size={16} />
                 </button>

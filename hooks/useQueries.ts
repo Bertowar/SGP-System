@@ -1,7 +1,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-    fetchMachineStatuses, registerProductionEntry, fetchDashboardStats
+    fetchMachineStatuses, registerProductionEntry, fetchDashboardStats, fetchMaterials
 } from '../services/inventoryService';
 import {
     fetchProducts, fetchMachines, fetchOperators, fetchDowntimeTypes, fetchScrapReasons,
@@ -14,6 +14,7 @@ import { useAuth } from '../contexts/AuthContext';
 // --- KEYS ---
 export const KEYS = {
     PRODUCTS: ['products'],
+    MATERIALS: ['materials'],
     MACHINES: ['machines'],
     OPERATORS: ['operators'],
     DOWNTIME_TYPES: ['downtimeTypes'],
@@ -36,6 +37,15 @@ export const useProducts = () => {
         queryKey: [...KEYS.PRODUCTS, user?.organizationId],
         queryFn: fetchProducts,
         staleTime: 1000 * 60 * 10 // 10 mins
+    });
+};
+
+export const useMaterials = () => {
+    const { user } = useAuth();
+    return useQuery({
+        queryKey: [...KEYS.MATERIALS, user?.organizationId],
+        queryFn: () => fetchMaterials().then(res => res || []),
+        staleTime: 1000 * 60 * 5 // 5 mins
     });
 };
 

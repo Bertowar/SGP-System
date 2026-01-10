@@ -750,6 +750,7 @@ const InventoryPage: React.FC = () => {
                                             <th className="px-3 py-4">Item (Filho)</th>
                                             <th className="px-3 py-4">Categoria</th>
                                             <th className="px-3 py-4 text-right">Estoque</th>
+                                            <th className="px-3 py-4 text-right text-orange-600">Reservado</th>
                                             <th className="px-3 py-4 text-right">Custo Un.</th>
                                             <th className="px-3 py-4 text-right">Valor Total</th>
                                             <th className="px-3 py-4 text-center">Ações</th>
@@ -775,9 +776,20 @@ const InventoryPage: React.FC = () => {
                                                 </td>
                                                 <td className="px-3 py-4 text-right">
                                                     <div className={`font-bold ${mat.currentStock <= mat.minStock ? 'text-red-600' : 'text-slate-700'}`}>
-                                                        {mat.currentStock.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} <span className="text-xs font-normal text-slate-400">{mat.unit}</span>
+                                                        {mat.currentStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs font-normal text-slate-400">{mat.unit}</span>
                                                     </div>
                                                     <div className="text-[10px] text-slate-400">Min: {mat.minStock}</div>
+                                                </td>
+                                                <td className="px-3 py-4 text-right">
+                                                    <div className="font-bold text-orange-600">
+                                                        {(mat.allocated || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        <span className="text-xs font-normal text-slate-400 ml-1">{mat.unit}</span>
+                                                    </div>
+                                                    {(mat.allocated || 0) > 0 && (
+                                                        <div className="text-[10px] text-slate-400">
+                                                            Disponível: {((mat.currentStock - (mat.allocated || 0))).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td className="px-3 py-4 text-right font-mono text-slate-600">
                                                     R$ {mat.unitCost.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

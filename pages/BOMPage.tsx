@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { fetchProducts } from '../services/masterDataService';
-import { fetchMaterials, fetchBOMVersions, fetchBOMItems, saveBOMItem, deleteBOMItem, createBOMVersion, activateBOMVersion } from '../services/inventoryService';
+import { fetchMaterials, fetchBOMVersions, fetchBOMItems, saveBOMItem, deleteBOMItem, createBOMVersion, activateBOMVersion, updateBOMHeader } from '../services/inventoryService';
 import { formatError } from '../services/utils';
 import { Product, RawMaterial, ProductBOMHeader, BOMItem, MaterialCategory } from '../types';
 import { Wrench, Plus, Trash2, Loader2, Edit, Save, X, Box, Zap, User, Hammer } from 'lucide-react';
@@ -106,6 +106,17 @@ const BOMPage: React.FC = () => {
         } catch (e) { alert("Erro ao ativar versão: " + formatError(e)); }
     };
 
+    const handleUpdateRate = async (rateStr: string) => {
+        if (!selectedVersionId || !selectedProduct) return;
+        const rate = parseFloat(rateStr);
+        if (isNaN(rate) || rate < 0) return; // Allow 0? Ideally > 0
+        try {
+            await updateBOMHeader(selectedVersionId, { productionRatePerHour: rate });
+            // Update local state without full reload
+            setVersions(prev => prev.map(v => v.id === selectedVersionId ? { ...v, productionRatePerHour: rate } : v));
+        } catch (e) { alert("Erro ao atualizar taxa: " + formatError(e)); }
+    };
+
     const resetForm = () => {
         setIsEditingId(null);
         setFormMatId('');
@@ -203,75 +214,100 @@ const BOMPage: React.FC = () => {
             <div className="flex-1 bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col">
                 {selectedProduct ? (
                     <>
-                        <div className="p-6 border-b border-slate-100 flex justify-between items-start">
-                            <div>
-                                <h2 className="text-2xl font-bold text-slate-800 flex items-center">
-                                    <Wrench className="mr-3 text-brand-600" />
-                                    Ficha Técnica (BOM)
-                                </h2>
-                                <p className="text-slate-500 mt-1">
-                                    Gerencie versões e composição de <b>{selectedProduct.produto}</b>.
-                                </p>
+                        <div className="p-4 border-b border-slate-100 flex justify-between items-start bg-white rounded-t-xl">
+                            <div className="flex-1">
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <h2 className="text-xl font-bold text-slate-800 flex items-center">
+                                            <Wrench className="mr-2 text-brand-600" size={20} />
+                                            Ficha Técnica (BOM)
+                                        </h2>
+                                        <p className="text-xs text-slate-500 mt-0.5 mb-3">
+                                            Gerencie versões e composição de <b>{selectedProduct.produto}</b>.
+                                        </p>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Custo Estimado / Un</span>
+                                        <span className="text-xl font-bold text-brand-700 font-mono">
+                                            {bomItems.reduce((acc, item) => acc + (item.quantity * (item.material?.unitCost || 0)), 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                        </span>
+                                    </div>
+                                </div>
 
-                                {/* Version Selector */}
-                                <div className="mt-4 flex items-center gap-3">
-                                    <div className="relative">
+                                {/* Controls Row: Compact Version */}
+                                <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                    {/* Version Selector */}
+                                    <div className="relative group">
                                         <select
                                             value={selectedVersionId || ''}
                                             onChange={e => setSelectedVersionId(e.target.value)}
-                                            className="appearance-none bg-slate-100 border border-slate-300 text-slate-700 py-1.5 pl-3 pr-8 rounded-md text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:border-transparent cursor-pointer hover:bg-slate-200 transition-colors"
+                                            className="appearance-none bg-white border border-slate-300 text-slate-700 py-1 pl-2 pr-6 rounded text-xs font-bold focus:ring-1 focus:ring-brand-500 outline-none h-7 shadow-sm min-w-[180px]"
                                             disabled={versions.length === 0}
-                                            title="Versão da Ficha Técnica"
-                                            aria-label="Versão da Ficha Técnica"
+                                            title="Versão Selecionada"
                                         >
                                             {versions.length === 0 && <option value="">Sem versões</option>}
                                             {versions.map(v => (
                                                 <option key={v.id} value={v.id}>
-                                                    Versão {v.version} {v.active ? '(Ativa)' : ''} - {new Date(v.createdAt!).toLocaleDateString()}
+                                                    v{v.version} {v.description ? `- ${v.description}` : ''} ({new Date(v.createdAt!).toLocaleDateString()})
                                                 </option>
                                             ))}
                                         </select>
-                                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
-                                            <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
+                                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-slate-500">
+                                            <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
                                         </div>
                                     </div>
 
-// ... Skip lines to next select ...
+                                    {/* Status Tag */}
+                                    {currentVersionObj?.active ? (
+                                        <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wider text-green-700 bg-green-100 px-2 h-6 rounded border border-green-200">
+                                            <Zap size={10} className="mr-1 fill-current" /> Ativa
+                                        </span>
+                                    ) : currentVersionObj ? (
+                                        <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-100 px-2 h-6 rounded border border-amber-200">
+                                            Rascunho
+                                        </span>
+                                    ) : null}
 
+                                    <div className="h-4 w-px bg-slate-300 mx-1"></div>
+
+                                    {/* Actions */}
                                     {versions.length === 0 ? (
-                                        <button onClick={handleCreateVersion} className="bg-brand-600 text-white px-3 py-1.5 rounded-md text-sm font-bold hover:bg-brand-700 flex items-center">
-                                            <Plus size={14} className="mr-1" /> Criar 1ª Versão
+                                        <button onClick={handleCreateVersion} className="bg-brand-600 text-white px-2 h-6 rounded text-xs font-bold hover:bg-brand-700 flex items-center transition-colors">
+                                            <Plus size={12} className="mr-1" /> Criar 1ª Versão
                                         </button>
                                     ) : (
-                                        <>
-                                            <button onClick={handleCreateVersion} className="bg-white border border-slate-300 text-slate-600 px-3 py-1.5 rounded-md text-sm font-bold hover:bg-slate-50 flex items-center" title="Criar nova versão a partir desta">
-                                                <Plus size={14} className="mr-1" /> Nova Versão
+                                        <div className="flex items-center gap-2">
+                                            <button onClick={handleCreateVersion} className="bg-white border border-slate-300 text-slate-600 px-2 h-6 rounded text-xs font-bold hover:bg-slate-50 flex items-center transition-colors" title="Criar nova versão cópia desta">
+                                                <Plus size={12} className="mr-1" /> Nova
                                             </button>
                                             {currentVersionObj && !currentVersionObj.active && (
-                                                <button onClick={handleActivateVersion} className="bg-green-50 border border-green-200 text-green-700 px-3 py-1.5 rounded-md text-sm font-bold hover:bg-green-100 flex items-center">
-                                                    <Zap size={14} className="mr-1" /> Ativar Versão
+                                                <button onClick={handleActivateVersion} className="bg-green-50 border border-green-200 text-green-700 px-2 h-6 rounded text-xs font-bold hover:bg-green-100 flex items-center transition-colors" title="Tornar esta versão a oficial para produção">
+                                                    <Zap size={12} className="mr-1" /> Ativar
                                                 </button>
                                             )}
-                                        </>
+                                        </div>
                                     )}
+
+                                    <div className="flex-1"></div>
+
+                                    {/* Production Rate - Moved Here based on user request */}
+                                    <div className="flex items-center gap-2 bg-white px-2 py-0.5 rounded border border-slate-200">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase whitespace-nowrap">Taxa (Pç/h):</label>
+                                        <input
+                                            type="number"
+                                            className="w-16 text-xs font-bold text-slate-700 outline-none text-right bg-transparent border-b border-dashed border-slate-300 focus:border-brand-500"
+                                            placeholder="0"
+                                            value={currentVersionObj?.productionRatePerHour || ''}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                setVersions(prev => prev.map(v => v.id === selectedVersionId ? { ...v, productionRatePerHour: parseFloat(val) } : v));
+                                            }}
+                                            onBlur={(e) => handleUpdateRate(e.target.value)}
+                                            title="Peças por Hora (Tempo Padrão)"
+                                        />
+                                    </div>
                                 </div>
 
-                                {currentVersionObj?.active ? (
-                                    <span className="inline-block mt-2 text-[10px] font-bold uppercase tracking-wider text-green-600 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
-                                        Produção Ativa
-                                    </span>
-                                ) : currentVersionObj ? (
-                                    <span className="inline-block mt-2 text-[10px] font-bold uppercase tracking-wider text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                                        Rascunho / Histórico
-                                    </span>
-                                ) : null}
-
-                            </div>
-                            <div className="text-right">
-                                <span className="text-xs uppercase font-bold text-slate-400 block mb-1">Custo Estimado / Un</span>
-                                <span className="text-2xl font-bold text-brand-700 font-mono">
-                                    {bomItems.reduce((acc, item) => acc + (item.quantity * (item.material?.unitCost || 0)), 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                </span>
                             </div>
                         </div>
 

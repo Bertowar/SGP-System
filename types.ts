@@ -261,6 +261,7 @@ export interface AppSettings {
 
   // BUSINESS RULES CONFIG
   includeBorraInReturn?: boolean; // Se true, soma Borra no Retorno (Extrusão)
+  hardReserveStock?: boolean; // NEW: Se true, abate estoque ao criar OP
 }
 
 export interface WorkShift {
@@ -313,6 +314,7 @@ export interface RawMaterial {
   category: MaterialCategory;
   group?: string; // NEW: Agrupamento (Ex: Aparas, Caixas, Resinas)
   leadTime?: number; // NEW: Prazo de Entrega (Dias)
+  allocated?: number; // NEW: Quantidade Reservada em OPs
 }
 
 // NEW: BOM Header (Versioned)
@@ -323,6 +325,7 @@ export interface ProductBOMHeader {
   version: number;
   active: boolean;
   description?: string;
+  productionRatePerHour?: number; // NEW: Peças por Hora (Standard Time)
   createdAt?: string;
   items?: BOMItem[]; // Join
 

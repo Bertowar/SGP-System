@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
     useProducts, useMachines, useOperators, useDowntimeTypes,
     useScrapReasons, useSectors, useWorkShifts, useMachineStatuses,
-    useRegisterEntry, useCustomFields, useProductionOrders
+    useRegisterEntry, useCustomFields, useProductionOrders, useMaterials
 } from '../hooks/useQueries';
 import { ProductionEntry } from '../types';
 import { Input, Textarea } from '../components/Input';
@@ -37,7 +37,9 @@ const EntryForm: React.FC = () => {
     const { data: shifts = [] } = useWorkShifts();
     const { data: machineStatuses = {} } = useMachineStatuses();
     const { data: customFields = [] } = useCustomFields();
+
     const { data: productionOrders = [] } = useProductionOrders();
+    const { data: materials = [] } = useMaterials();
 
     // Mutation
     const { mutateAsync: saveEntryMutation, isPending: isSubmitting } = useRegisterEntry();
@@ -45,8 +47,23 @@ const EntryForm: React.FC = () => {
     // Refs for Mix Inputs (to handle Enter navigation)
     const mixInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-    // FILTRO DE SETORES (Apenas Extrusão e Termoformagem conforme solicitado)
-    const displayedSectors = ['Extrusão', 'Termoformagem'];
+    // FILTRO DE SETORES DINÂMICO
+    // Garante que mostramos todos os setores das máquinas cadastradas,
+    // mas mantemos a ordem preferencial para SGP Master (Extrusão, Termoformagem...).
+    const displayedSectors = useMemo(() => {
+        const uniqueSectors = Array.from(new Set(machines.map(m => m.sector))).filter(Boolean);
+        const priority = ['Extrusão', 'Termoformagem'];
+
+        return uniqueSectors.sort((a: any, b: any) => {
+            const idxA = priority.indexOf(a);
+            const idxB = priority.indexOf(b);
+
+            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+            if (idxA !== -1) return -1;
+            if (idxB !== -1) return 1;
+            return a.localeCompare(b);
+        });
+    }, [machines]);
 
     // Current Date Helper
     const today = new Date().toISOString().split('T')[0];
@@ -77,11 +94,12 @@ const EntryForm: React.FC = () => {
     const [customValues, setCustomValues] = useState<Record<string, any>>({});
 
     // EXTRUSION SPECIFIC STATES
-    const [mixItems, setMixItems] = useState<{ type: string, subType: string, qty: string, targetPct?: string }[]>([
-        { type: 'FLAKE', subType: 'CRISTAL', qty: '', targetPct: '' },
-        { type: 'FLAKE', subType: 'BRANCO', qty: '', targetPct: '' },
-        { type: '', subType: '', qty: '', targetPct: '' },
-        { type: '', subType: '', qty: '', targetPct: '' }
+    // EXTRUSION SPECIFIC STATES
+    const [mixItems, setMixItems] = useState<{ type: string, subType: string, materialId?: string, qty: string, targetPct?: string }[]>([
+        { type: '', subType: '', materialId: '', qty: '', targetPct: '' },
+        { type: '', subType: '', materialId: '', qty: '', targetPct: '' },
+        { type: '', subType: '', materialId: '', qty: '', targetPct: '' },
+        { type: '', subType: '', materialId: '', qty: '', targetPct: '' }
     ]);
 
     const [additives, setAdditives] = useState({
@@ -145,17 +163,22 @@ const EntryForm: React.FC = () => {
     }, [operators, selectedMachine, shift, shifts, operatorId]);
 
     // FILTRO DE PRODUTOS
+
+
     const filteredProducts = useMemo(() => {
         if (!machineId || !selectedMachine) return [];
         const allFiltered = products.filter(p => {
             const allowedMachines = p.compatibleMachines || [];
             if (allowedMachines.length > 0) return allowedMachines.includes(machineId);
-            if (selectedMachine.sector === 'Extrusão') return p.type === 'INTERMEDIATE';
-            if (selectedMachine.sector === 'Termoformagem') return p.type === 'FINISHED';
-            return true;
+
+            // Fallback to Sector Logic
+            const sector = (selectedMachine.sector || '').toLowerCase();
+            if (sector.includes('extru')) return p.type === 'INTERMEDIATE';
+            if (sector.includes('termo') || sector.includes('acabamento')) return p.type === 'FINISHED';
+
+            return false; // Default: hide if no match
         });
 
-        // FORCE INCLUDE: If editing, ensure the original product is in the list even if compatibility rules fail
         if (editEntry?.productCode) {
             const current = products.find(p => Number(p.codigo) === Number(editEntry.productCode));
             if (current && !allFiltered.some(p => p.codigo === current.codigo)) {
@@ -185,6 +208,17 @@ const EntryForm: React.FC = () => {
     const filteredCustomFields = useMemo(() => {
         return customFields.filter(f => f.key !== 'peso_produto');
     }, [customFields]);
+
+    // MATERIAL HELPERS
+    const materialGroups = useMemo(() => {
+        const groups = new Set(materials.map(m => m.group).filter(Boolean));
+        return Array.from(groups).sort();
+    }, [materials]);
+
+    const getMaterialsByGroup = (group: string) => {
+        if (!group) return [];
+        return materials.filter(m => m.group === group).sort((a, b) => a.name.localeCompare(b.name));
+    };
 
     // HANDLER: OP Selection
     const handleOpChange = (opId: string) => {
@@ -372,10 +406,10 @@ const EntryForm: React.FC = () => {
 
             setAdditives({ pigmentBlack: '', pigmentWhite: '', alvejante: '', clarificante: '' });
             setMixItems([
-                { type: 'FLAKE', subType: 'CRISTAL', qty: '', targetPct: '' },
-                { type: 'FLAKE', subType: 'BRANCO', qty: '', targetPct: '' },
-                { type: '', subType: '', qty: '', targetPct: '' },
-                { type: '', subType: '', qty: '', targetPct: '' }
+                { type: '', subType: '', materialId: '', qty: '', targetPct: '' },
+                { type: '', subType: '', materialId: '', qty: '', targetPct: '' },
+                { type: '', subType: '', materialId: '', qty: '', targetPct: '' },
+                { type: '', subType: '', materialId: '', qty: '', targetPct: '' }
             ]);
         }
     }, [machineId, editEntry]);
@@ -639,7 +673,7 @@ const EntryForm: React.FC = () => {
                                     <button type="button" onClick={() => setIsDowntime(true)} disabled={!!editEntry} className={`flex-1 flex items-center justify-center py-4 px-4 rounded-lg text-lg md:text-xl font-extrabold transition-all duration-300 uppercase tracking-wider ${isDowntime ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'} ${editEntry ? 'opacity-50 cursor-not-allowed' : ''}`} title={editEntry ? "Não é permitido alterar o tipo na edição" : ""}><Timer size={24} className="mr-2" /> PARADAS</button>
                                 </div>
                             </div>
-                            <button onClick={closeModal} className="absolute top-4 right-4 md:static p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"><X size={28} /></button>
+                            <button onClick={closeModal} className="absolute top-4 right-4 md:static p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors" title="Fechar" aria-label="Fechar Modal"><X size={28} /></button>
                         </div>
                         <div className="overflow-y-auto p-6 bg-white flex-1">
                             {errorMsg && (
@@ -656,7 +690,7 @@ const EntryForm: React.FC = () => {
                                             {/* OP Selector - Visible always */}
                                             <div className="lg:col-span-4">
                                                 <label className="text-[10px] uppercase font-bold text-blue-800 mb-1 flex items-center"><ClipboardList size={12} className="mr-1" /> Ordem de Produção</label>
-                                                <select className="w-full px-2 py-2 border border-blue-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-blue-400 font-bold text-slate-700 h-9" value={selectedOpId} onChange={e => handleOpChange(e.target.value)}>
+                                                <select className="w-full px-2 py-2 border border-blue-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-blue-400 font-bold text-slate-700 h-9" value={selectedOpId} onChange={e => handleOpChange(e.target.value)} title="Selecione a Ordem de Produção" aria-label="Selecione a Ordem de Produção">
                                                     <option value="">- Avulso -</option>{availableOps.map(op => <option key={op.id} value={op.id}>{op.id} - {(op.product?.produto || 'N/D').substring(0, 15)}...</option>)}
                                                 </select>
                                             </div>
@@ -664,25 +698,25 @@ const EntryForm: React.FC = () => {
                                             {/* Data */}
                                             <div className={`${!isDowntime ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
                                                 <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Data</label>
-                                                <input type="date" className="w-full px-2 py-2 border rounded-lg h-9 font-bold text-slate-800 text-xs" value={date} onChange={e => setDate(e.target.value)} max={today} required />
+                                                <input type="date" className="w-full px-2 py-2 border rounded-lg h-9 font-bold text-slate-800 text-xs" value={date} onChange={e => setDate(e.target.value)} max={today} required title="Data do Apontamento" placeholder="DD/MM/AAAA" />
                                             </div>
 
                                             {/* Turno */}
                                             <div className={`${!isDowntime ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
                                                 <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Turno *</label>
-                                                <select className="w-full px-2 py-2 border rounded-lg h-9 bg-white text-xs font-bold" value={shift} onChange={handleShiftChange} required disabled={!machineId}><option value="">Selecione...</option>{availableShifts.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}</select>
+                                                <select className="w-full px-2 py-2 border rounded-lg h-9 bg-white text-xs font-bold" value={shift} onChange={handleShiftChange} required disabled={!machineId} title="Selecione o Turno" aria-label="Selecione o Turno"><option value="">Selecione...</option>{availableShifts.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}</select>
                                             </div>
 
                                             {/* Início */}
                                             <div className={`${!isDowntime ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
                                                 <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Início</label>
-                                                <input type="time" className="w-full px-2 py-2 border rounded-lg h-9 font-bold text-slate-800 text-xs" value={startTime} onChange={e => setStartTime(e.target.value)} required />
+                                                <input type="time" className="w-full px-2 py-2 border rounded-lg h-9 font-bold text-slate-800 text-xs" value={startTime} onChange={e => setStartTime(e.target.value)} required title="Hora Início" placeholder="HH:MM" />
                                             </div>
 
                                             {/* Fim */}
                                             <div className={`${!isDowntime ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
                                                 <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Fim</label>
-                                                <input type="time" className="w-full px-2 py-2 border rounded-lg h-9 font-bold text-slate-800 text-xs" value={endTime} onChange={e => setEndTime(e.target.value)} required />
+                                                <input type="time" className="w-full px-2 py-2 border rounded-lg h-9 font-bold text-slate-800 text-xs" value={endTime} onChange={e => setEndTime(e.target.value)} required title="Hora Fim" placeholder="HH:MM" />
                                             </div>
                                         </div>
 
@@ -691,7 +725,7 @@ const EntryForm: React.FC = () => {
                                             {/* Operador */}
                                             <div>
                                                 <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Operador {isOperatorExempt ? '(Opcional)' : '*'}</label>
-                                                <select className="w-full px-3 py-2 border rounded-lg h-[42px] bg-white font-medium text-sm" value={operatorId} onChange={e => setOperatorId(Number(e.target.value))} required={!isOperatorExempt} disabled={isOperatorExempt && isLongStop}><option value="">{isOperatorExempt ? 'Máquina sem operador' : 'Selecione...'}</option>{filteredOperators.map(op => <option key={op.id} value={op.id}>{op.name}</option>)}</select>
+                                                <select className="w-full px-3 py-2 border rounded-lg h-[42px] bg-white font-medium text-sm" value={operatorId} onChange={e => setOperatorId(Number(e.target.value))} required={!isOperatorExempt} disabled={isOperatorExempt && isLongStop} title="Selecione o Operador" aria-label="Selecione o Operador"><option value="">{isOperatorExempt ? 'Máquina sem operador' : 'Selecione...'}</option>{filteredOperators.map(op => <option key={op.id} value={op.id}>{op.name}</option>)}</select>
                                             </div>
 
                                             {/* Produto ou Motivo Parada */}
@@ -704,14 +738,14 @@ const EntryForm: React.FC = () => {
                                                 ) : (
                                                     <div>
                                                         <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Motivo Parada *</label>
-                                                        <select className="w-full px-3 py-2 border rounded-lg h-[42px] bg-white font-bold text-sm" value={downtimeTypeId} onChange={e => setDowntimeTypeId(e.target.value)} required><option value="">Selecione...</option>{downtimeTypes.map(d => <option key={d.id} value={d.id}>{d.id} - {d.description}</option>)}</select>
+                                                        <select className="w-full px-3 py-2 border rounded-lg h-[42px] bg-white font-bold text-sm" value={downtimeTypeId} onChange={e => setDowntimeTypeId(e.target.value)} required title="Selecione o Motivo da Parada" aria-label="Selecione o Motivo da Parada"><option value="">Selecione...</option>{downtimeTypes.map(d => <option key={d.id} value={d.id}>{d.id} - {d.description}</option>)}</select>
                                                     </div>
                                                 )}
                                             </div>
                                         </div>
                                         {isDowntime && (
                                             <div className="flex items-center bg-orange-50 border border-orange-200 px-3 py-2 rounded-lg w-full h-[42px] cursor-pointer hover:bg-orange-100 transition-colors" onClick={() => { const newVal = !isLongStop; setIsLongStop(newVal); if (newVal) { setOperatorId(''); const s = shifts.find(s => s.name === shift); if (s) { setStartTime(s.startTime); setEndTime(s.endTime); } } }}>
-                                                <input type="checkbox" className="w-5 h-5 text-orange-600 rounded mr-2" checked={isLongStop} readOnly /><label className="cursor-pointer font-bold text-slate-800 text-sm">Parada Longa <span className="block text-[10px] text-slate-500 font-normal">Inativação</span></label>
+                                                <input type="checkbox" className="w-5 h-5 text-orange-600 rounded mr-2" checked={isLongStop} readOnly title="Parada Longa (Inativação)" aria-label="Parada Longa (Inativação)" /><label className="cursor-pointer font-bold text-slate-800 text-sm">Parada Longa <span className="block text-[10px] text-slate-500 font-normal">Inativação</span></label>
                                             </div>
                                         )}
                                     </div>
@@ -721,10 +755,70 @@ const EntryForm: React.FC = () => {
                                         <div className="flex items-center gap-2 mb-4 text-blue-800 border-b border-blue-200 pb-2"><Beaker size={18} className="text-blue-600" /> <h3 className="font-bold">Formulação & Aditivos</h3>{selectedOpId && <span className="text-[10px] bg-blue-200 text-blue-800 px-2 py-0.5 rounded ml-auto font-bold">OP VINCULADA</span>}</div>
                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                             <div className="bg-white p-4 rounded-lg border border-blue-100 shadow-sm relative flex flex-col justify-between">
-                                                <div><h4 className="text-xs font-bold text-blue-500 uppercase flex items-center mb-3"><FlaskConical size={14} className="mr-1" /> Mistura / Mix (Kg)</h4>{mixItems.map((item, idx) => (<div key={idx} className="flex gap-2 mb-2 items-center"><select className="w-24 px-2 py-1 text-xs border rounded bg-slate-50" value={item.type} onChange={e => handleMixItemChange(idx, 'type', e.target.value)}><option value="">Tipo...</option><option value="FLAKE">FLAKE</option><option value="APARA">APARA</option></select><select className="flex-1 px-2 py-1 text-xs border rounded bg-slate-50" value={item.subType} onChange={e => handleMixItemChange(idx, 'subType', e.target.value)}><option value="">Cor / Material...</option><option value="CRISTAL">CRISTAL</option><option value="BRANCO">BRANCO</option><option value="PRETO">PRETO</option><option value="AZUL">AZUL</option></select><input type="number" step="0.001" className="w-20 px-2 py-1 text-xs border rounded text-right font-bold focus:ring-2 focus:ring-blue-400 outline-none" placeholder="0.00" value={item.qty} onChange={e => handleMixItemChange(idx, 'qty', e.target.value)} onKeyDown={(e) => handleMixKeyDown(e, idx)} ref={el => { mixInputRefs.current[idx] = el; }} />{item.targetPct && (<span className="text-[9px] text-slate-400 font-mono ml-1 w-10">Ref: {item.targetPct}%</span>)}</div>))}</div>
+                                                <div>
+                                                    <h4 className="text-xs font-bold text-blue-500 uppercase flex items-center mb-3"><FlaskConical size={14} className="mr-1" /> Mistura / Mix (Kg)</h4>
+                                                    {mixItems.map((item, idx) => (
+                                                        <div key={idx} className="flex gap-2 mb-2 items-center">
+                                                            {/* Grupo / Tipo */}
+                                                            <select
+                                                                className="w-24 px-2 py-1 text-xs border rounded bg-slate-50"
+                                                                value={item.type}
+                                                                onChange={e => {
+                                                                    const newGroup = e.target.value;
+                                                                    const newItems = [...mixItems];
+                                                                    newItems[idx] = { ...newItems[idx], type: newGroup, subType: '', materialId: '' };
+                                                                    setMixItems(newItems);
+                                                                }}
+                                                                title="Grupo de Material"
+                                                                aria-label="Grupo de Material"
+                                                            >
+                                                                <option value="">Grupo...</option>
+                                                                {materialGroups.map(g => <option key={g} value={g}>{g}</option>)}
+                                                            </select>
+
+                                                            {/* Material / SubTipo */}
+                                                            <select
+                                                                className="flex-1 px-2 py-1 text-xs border rounded bg-slate-50"
+                                                                value={item.materialId || ''}
+                                                                onChange={e => {
+                                                                    const matId = e.target.value;
+                                                                    const mat = materials.find(m => m.id === matId);
+                                                                    const newItems = [...mixItems];
+                                                                    newItems[idx] = {
+                                                                        ...newItems[idx],
+                                                                        materialId: matId,
+                                                                        subType: mat ? mat.name : '',
+                                                                        type: mat ? (mat.group || item.type) : item.type
+                                                                    };
+                                                                    setMixItems(newItems);
+                                                                }}
+                                                                title="Material"
+                                                                aria-label="Material da Mistura"
+                                                            >
+                                                                <option value="">Material...</option>
+                                                                {getMaterialsByGroup(item.type).map(m => (
+                                                                    <option key={m.id} value={m.id}>{m.name}</option>
+                                                                ))}
+                                                            </select>
+
+                                                            <input
+                                                                type="number"
+                                                                step="0.001"
+                                                                className="w-20 px-2 py-1 text-xs border rounded text-right font-bold focus:ring-2 focus:ring-blue-400 outline-none"
+                                                                placeholder="0.00"
+                                                                value={item.qty}
+                                                                onChange={e => handleMixItemChange(idx, 'qty', e.target.value)}
+                                                                onKeyDown={(e) => handleMixKeyDown(e, idx)}
+                                                                ref={el => { mixInputRefs.current[idx] = el; }}
+                                                                title="Quantidade (Kg)"
+                                                            />
+                                                            {item.targetPct && (<span className="text-[9px] text-slate-400 font-mono ml-1 w-10">Ref: {item.targetPct}%</span>)}
+                                                        </div>
+                                                    ))}
+                                                </div>
                                                 <div className="mt-3 pt-3 border-t border-slate-100 flex justify-end items-center"><span className="text-sm font-bold text-slate-500 mr-2">Total da Mistura:</span><span className="text-lg font-bold text-blue-700 bg-blue-100 px-3 py-1 rounded-lg border border-blue-200">{totalMixWeight.toFixed(2)} Kg</span></div>
                                             </div>
-                                            <div className="bg-white p-4 rounded-lg border border-blue-100 shadow-sm"><h4 className="text-xs font-bold text-blue-500 uppercase mb-3 flex items-center"><Droplet size={14} className="mr-1" /> Aditivos (Kg)</h4><div className="grid grid-cols-2 gap-3">{[{ key: 'pigmentBlack', label: 'Pigmento Preto' }, { key: 'pigmentWhite', label: 'Pigmento Branco' }, { key: 'alvejante', label: 'Alvejante' }, { key: 'clarificante', label: 'Clarificante' }].map(ad => (<div key={ad.key} className="flex flex-col"><label className="text-[10px] font-bold text-slate-500 mb-1">{ad.label}</label><input type="number" step="0.001" className={`px-2 py-1.5 border rounded text-sm outline-none transition-colors ${(additives as any)[ad.key] ? 'border-blue-400 bg-blue-50 text-blue-800 font-bold' : 'border-slate-200 bg-slate-50'}`} value={(additives as any)[ad.key]} onChange={e => setAdditives({ ...additives, [ad.key]: e.target.value })} placeholder="0.000" /></div>))}</div></div>
+                                            <div className="bg-white p-4 rounded-lg border border-blue-100 shadow-sm"><h4 className="text-xs font-bold text-blue-500 uppercase mb-3 flex items-center"><Droplet size={14} className="mr-1" /> Aditivos (Kg)</h4><div className="grid grid-cols-2 gap-3">{[{ key: 'pigmentBlack', label: 'Pigmento Preto' }, { key: 'pigmentWhite', label: 'Pigmento Branco' }, { key: 'alvejante', label: 'Alvejante' }, { key: 'clarificante', label: 'Clarificante' }].map(ad => (<div key={ad.key} className="flex flex-col"><label className="text-[10px] font-bold text-slate-500 mb-1">{ad.label}</label><input type="number" step="0.001" className={`px-2 py-1.5 border rounded text-sm outline-none transition-colors ${(additives as any)[ad.key] ? 'border-blue-400 bg-blue-50 text-blue-800 font-bold' : 'border-slate-200 bg-slate-50'}`} value={(additives as any)[ad.key]} onChange={e => setAdditives({ ...additives, [ad.key]: e.target.value })} placeholder="0.000" title={`Quantidade de ${ad.label}`} /></div>))}</div></div>
                                         </div>
                                     </div>
                                 )}

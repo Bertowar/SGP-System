@@ -3,9 +3,11 @@ import React, { useState, useEffect } from 'react';
 import { ProductionOrder, WorkOrder, MaterialReservation, Machine, OrderStatusHistory, Operator } from '../types';
 import { fetchProductionOrderDetails, saveProductionOrder, fetchActiveProductionOrders, fetchEntriesByProductionOrderId, fetchStatusHistory } from '../services/productionService';
 import { fetchMachines, fetchOperators } from '../services/masterDataService';
+import { getActiveBOM } from '../services/inventoryService';
 import { recordWorkOrderActivity } from '../services/workOrderService';
 import { formatNumber } from '../services/utils';
 import { X, Calendar, Package, Clock, CheckCircle2, AlertCircle, Play, Layers, Boxes, User, ArrowRight, Activity, CheckSquare, Scale, History } from 'lucide-react';
+import { ProgressBar } from './ProgressBar';
 
 interface ProductionOrderDetailsModalProps {
     opId: string;
@@ -25,6 +27,7 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
     const [operators, setOperators] = useState<Operator[]>([]);
     const [reportingStepId, setReportingStepId] = useState<string | null>(null);
     const [reportForm, setReportForm] = useState({ ok: '', nok: '', operatorId: '' });
+    const [activeBOM, setActiveBOM] = useState<any | null>(null);
 
     // Determine context (Extrusion vs Others)
     const currentMachine = machines.find(m => m.id === op?.machineId) || machines.find(m => m.code === op?.machineId);
@@ -64,8 +67,14 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
         setMachines(ms);
         setActiveOps(active);
         setEntries(ents);
+        setEntries(ents);
         setHistory(hist);
         setOperators(ops);
+
+        if (data?.product?.id) {
+            getActiveBOM(data.product.id).then(bom => setActiveBOM(bom));
+        }
+
         setLoading(false);
     };
 
@@ -73,6 +82,12 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
         if (!targetMachineId) return null;
         const now = new Date();
         let totalSecondsRemaining = 0;
+
+        // Default Cycle Time: If Production Rate is set in BOM, use it. Else 10s.
+        let defaultCycleTime = 10;
+        if (activeBOM && activeBOM.productionRatePerHour > 0) {
+            defaultCycleTime = 3600 / activeBOM.productionRatePerHour;
+        }
 
         activeOps.forEach(o => {
             // Check direct assignment using UUID
@@ -82,13 +97,13 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
                     o.workOrders.forEach((wo: any) => {
                         if (wo.machineId === targetMachineId && wo.status !== 'COMPLETED') {
                             const rem = (wo.qtyPlanned - wo.qtyProduced);
-                            if (rem > 0) totalSecondsRemaining += (rem * (wo.cycleTime || 10)); // Default 10s if missing
+                            if (rem > 0) totalSecondsRemaining += (rem * (wo.cycleTime || defaultCycleTime));
                         }
                     });
                 } else {
                     // Fallback to OP level
                     const rem = (o.targetQuantity - o.producedQuantity);
-                    if (rem > 0) totalSecondsRemaining += (rem * 10);
+                    if (rem > 0) totalSecondsRemaining += (rem * defaultCycleTime);
                 }
             }
         });
@@ -449,10 +464,7 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
                             </span>
                         </div>
                         <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden mb-2">
-                            <div
-                                className="h-full bg-brand-600 rounded-full transition-all duration-1000 ease-out origin-left [transform:scaleX(var(--progress))]"
-                                style={{ '--progress': progressPct / 100 } as React.CSSProperties}
-                            ></div>
+                            <ProgressBar percentage={progressPct} colorClass="bg-brand-600" />
                         </div>
                         <div className="flex justify-between items-center text-xs">
                             <span className="font-bold text-slate-700 flex items-center gap-1">
@@ -733,10 +745,10 @@ const ProductionOrderDetailsModal: React.FC<ProductionOrderDetailsModalProps> = 
                                                                                     </span>
                                                                                 </div>
                                                                                 <div className="w-full h-4 bg-slate-50 rounded-full border border-slate-200 p-0.5 relative overflow-hidden shadow-inner">
-                                                                                    <div
-                                                                                        className={`h-full rounded-full transition-all duration-500 shadow-sm ${item.pct > 100 ? 'bg-red-500' : item.pct > 80 ? 'bg-green-500' : 'bg-yellow-400'} origin-left [transform:scaleX(var(--progress))]`}
-                                                                                        style={{ '--progress': Math.min(100, item.pct) / 100 } as React.CSSProperties}
-                                                                                    ></div>
+                                                                                    <ProgressBar
+                                                                                        percentage={item.pct}
+                                                                                        colorClass={item.pct > 100 ? 'bg-red-500' : item.pct > 80 ? 'bg-green-500' : 'bg-yellow-400'}
+                                                                                    />
                                                                                 </div>
                                                                             </td>
                                                                         </tr>

@@ -10,9 +10,29 @@ export const fetchMaterials = async (forceOrgId?: string): Promise<RawMaterial[]
     try {
         const orgId = forceOrgId || await getCurrentOrgId();
         if (!orgId) return [];
-        const { data, error } = await supabase.from('raw_materials').select('*').eq('organization_id', orgId).order('name');
+
+        // 1. Fetch Materials
+        const { data: materials, error } = await supabase.from('raw_materials').select('*').eq('organization_id', orgId).order('name');
         if (error) return [];
-        return data.map((d: any) => ({
+
+        // 2. Fetch Aggregated Reservations (Pending)
+        // Note: Supabase doesn't support direct Sum in select easily without creating a View or RPC.
+        // We will fetch all pending reservations and aggregate in JS for now (assuming not huge volume yet).
+        const { data: reservations } = await supabase
+            .from('material_reservations')
+            .select('material_id, quantity')
+            .eq('organization_id', orgId)
+            .eq('status', 'PENDING');
+
+        const reservationMap = new Map<string, number>();
+        if (reservations) {
+            reservations.forEach((r: any) => {
+                const current = reservationMap.get(r.material_id) || 0;
+                reservationMap.set(r.material_id, current + r.quantity);
+            });
+        }
+
+        return materials.map((d: any) => ({
             id: d.id,
             code: d.code,
             name: d.name,
@@ -22,7 +42,8 @@ export const fetchMaterials = async (forceOrgId?: string): Promise<RawMaterial[]
             unitCost: d.unit_cost || 0,
             category: d.category || 'raw_material',
             group: d.group_name || 'Diversos',
-            leadTime: d.lead_time_days || 0 // NEW
+            leadTime: d.lead_time_days || 0, // NEW
+            allocated: reservationMap.get(d.id) || 0 // NEW: Populated from reservations
         }));
     } catch (e) { return []; }
 };
@@ -133,6 +154,7 @@ export const fetchBOMVersions = async (productId: string): Promise<ProductBOMHea
             version: d.version,
             active: d.active,
             description: d.description,
+            productionRatePerHour: d.production_rate_per_hour,
             createdAt: d.created_at
         }));
     } catch (e) {
@@ -167,6 +189,7 @@ export const fetchAllActiveBOMs = async (): Promise<ProductBOMHeader[]> => {
             version: d.version,
             active: d.active,
             description: d.description,
+            productionRatePerHour: d.production_rate_per_hour,
             createdAt: d.created_at,
             items: d.items.map((i: any) => ({
                 id: i.id,
@@ -211,6 +234,7 @@ export const getActiveBOM = async (productId: string): Promise<ProductBOMHeader 
             version: data.version,
             active: data.active,
             description: data.description,
+            productionRatePerHour: data.production_rate_per_hour,
             createdAt: data.created_at
         };
     } catch (e) { return null; }
@@ -288,6 +312,16 @@ export const activateBOMVersion = async (productId: string, bomId: string): Prom
     await supabase.from('product_boms').update({ active: false }).eq('product_id', productId).eq('organization_id', orgId);
     // Activate target
     await supabase.from('product_boms').update({ active: true }).eq('id', bomId).eq('organization_id', orgId);
+};
+
+export const updateBOMHeader = async (bomId: string, updates: { description?: string; productionRatePerHour?: number }): Promise<void> => {
+    const orgId = await getCurrentOrgId();
+    const dbUpdates: any = {};
+    if (updates.description !== undefined) dbUpdates.description = updates.description;
+    if (updates.productionRatePerHour !== undefined) dbUpdates.production_rate_per_hour = updates.productionRatePerHour;
+
+    const { error } = await supabase.from('product_boms').update(dbUpdates).eq('id', bomId).eq('organization_id', orgId);
+    if (error) throw error;
 };
 
 export const saveBOMItem = async (item: Omit<BOMItem, 'material' | 'organizationId'>): Promise<void> => {
@@ -535,31 +569,43 @@ const explodeMRP = async (
     // So for Level 1, Net = Quantity.
     // For Level > 1 (Components), Net = Required - Stock.
 
+    // MRP LOGIC AND VARIABLES INITIALIZATION
     let netRequirement = 0;
     let action: 'PRODUCE' | 'BUY' | 'STOCK' | 'NONE' = 'NONE';
+    let activeBOM = null;
 
+    // 1. Check Availability (Net Requirement)
     if (level === 1) {
-        netRequirement = requiredQty; // Build what is asked
-        action = 'PRODUCE';
+        netRequirement = requiredQty; // Always build top level
     } else {
         netRequirement = Math.max(0, requiredQty - stock);
-        if (netRequirement > 0) {
-            // Check if it's manufactured (INTERMEDIATE/FINISHED) or Purchased
-            // 'type' is in product table.
-            if (product.type === 'FINISHED' || product.type === 'INTERMEDIATE') {
-                action = 'PRODUCE';
-            } else {
-                action = 'BUY'; // It's a component/raw material
-            }
-        } else {
-            action = 'STOCK'; // We have enough for this branch
-        }
     }
 
+    // 2. Check Manufacturability (Try to find BOM)
+    // Only check for BOM if potential for production (i.e. not explicitly a raw material purchase)
+    // Optimistic: Check BOM for everything treated as product.
     // Determine Type
     let type: 'FINISHED' | 'INTERMEDIATE' | 'COMPONENT' = product.type || 'COMPONENT';
-    // If it has no type but has a BOM, it's Intermediate?
-    // Let's trust the field. Defaults to Component.
+
+    if (product.id) {
+        activeBOM = await getActiveBOM(product.id);
+    }
+
+    // 3. Set Action
+    if (netRequirement > 0) {
+        if (activeBOM || type === 'FINISHED' || type === 'INTERMEDIATE') {
+            action = 'PRODUCE';
+        } else {
+            action = 'BUY'; // No BOM and not flagged as produced -> Buy
+        }
+    } else {
+        // We have stock, but is it a manufactured item or bought?
+        if (activeBOM || type === 'FINISHED' || type === 'INTERMEDIATE') {
+            action = 'STOCK'; // We have stock of this sub-assembly
+        } else {
+            action = 'STOCK'; // We have stock of this material
+        }
+    }
 
     const item: MRPPlanItem = {
         id: parentId ? `${parentId}-${product.code}` : product.code,
@@ -578,61 +624,56 @@ const explodeMRP = async (
     };
 
     // If we need to PRODUCE, we explode dependencies based on NET REQUIREMENT
-    // (If we use Stock, we don't need to produce, so no components consumed *for that portion*)
-    // Recursion base: netRequirement > 0 AND action == 'PRODUCE'
+    if (action === 'PRODUCE' && netRequirement > 0 && activeBOM) { // Use already fetched BOM
+        item.bomId = activeBOM.id;
+        const bomItems = await fetchBOMItems(activeBOM.id); // Includes material details
+        console.log(`[MRP] Exploding BOM ${activeBOM.id} for ${product.code}. Items: ${bomItems.length}`);
 
-    if (action === 'PRODUCE' && netRequirement > 0) {
-        // Fetch Active BOM
-        // Use existing methods or direct query
-        const activeBOM = await getActiveBOM(product.id);
+        let maxLeadTime = 0;
 
-        if (activeBOM) {
-            item.bomId = activeBOM.id;
-            const bomItems = await fetchBOMItems(activeBOM.id); // Includes material details
+        for (const bItem of bomItems) {
+            if (!bItem.material) continue;
 
-            let maxLeadTime = 0;
+            const qtyPerUnit = bItem.quantity;
+            const childRequiredQty = qtyPerUnit * netRequirement; // Consumes based on what we Make
 
-            for (const bItem of bomItems) {
-                if (!bItem.material) continue;
+            // Recursion: Check if this Material is also a Product (Manufacturable)
+            console.log(`[MRP] Checking if material ${bItem.material.code} is a product...`);
+            const { data: childProduct } = await supabase.from('products').select('*').eq('code', bItem.material.code).single();
 
-                const qtyPerUnit = bItem.quantity;
-                const childRequiredQty = qtyPerUnit * netRequirement; // Consumes based on what we Make
+            if (childProduct) {
+                console.log(`[MRP] Found Child Product for ${bItem.material.code}: ${childProduct.code} (Type: ${childProduct.type})`);
+                // It's a sub-assembly
+                const childNode = await explodeMRP(childProduct, childRequiredQty, level + 1, item.id);
+                item.children?.push(childNode);
+                if (childNode.leadTime > maxLeadTime) maxLeadTime = childNode.leadTime;
+            } else {
+                console.log(`[MRP] Material ${bItem.material.code} is NOT a product. Treating as RAW.`);
+                // It's a Raw Material (Leaf)
+                const mat = bItem.material;
+                const stockMat = mat.currentStock;
+                const netMat = Math.max(0, childRequiredQty - stockMat);
+                const isEnough = stockMat >= childRequiredQty;
 
-                // Recursion: Check if this Material is also a Product (Manufacturable)
-                const { data: childProduct } = await supabase.from('products').select('*').eq('code', bItem.material.code).single();
+                item.children?.push({
+                    id: `${item.id}-${mat.code}`,
+                    productId: '', // No Product ID for raw material logic here unless linked
+                    productCode: mat.code,
+                    name: mat.name,
+                    type: 'COMPONENT',
+                    level: level + 1,
+                    requiredQty: childRequiredQty,
+                    currentStock: stockMat,
+                    netRequirement: netMat,
+                    action: netMat > 0 ? 'BUY' : 'STOCK',
+                    leadTime: mat.leadTime || 0,
+                    unit: mat.unit
+                });
 
-                if (childProduct) {
-                    // It's a sub-assembly
-                    const childNode = await explodeMRP(childProduct, childRequiredQty, level + 1, item.id);
-                    item.children?.push(childNode);
-                    if (childNode.leadTime > maxLeadTime) maxLeadTime = childNode.leadTime;
-                } else {
-                    // It's a Raw Material (Leaf)
-                    const mat = bItem.material;
-                    const stockMat = mat.currentStock;
-                    const netMat = Math.max(0, childRequiredQty - stockMat);
-                    const isEnough = stockMat >= childRequiredQty;
-
-                    item.children?.push({
-                        id: `${item.id}-${mat.code}`,
-                        productId: '', // No Product ID for raw material logic here unless linked
-                        productCode: mat.code,
-                        name: mat.name,
-                        type: 'COMPONENT',
-                        level: level + 1,
-                        requiredQty: childRequiredQty,
-                        currentStock: stockMat,
-                        netRequirement: netMat,
-                        action: netMat > 0 ? 'BUY' : 'STOCK',
-                        leadTime: mat.leadTime || 0,
-                        unit: mat.unit
-                    });
-
-                    if ((mat.leadTime || 0) > maxLeadTime) maxLeadTime = mat.leadTime || 0;
-                }
+                if ((mat.leadTime || 0) > maxLeadTime) maxLeadTime = mat.leadTime || 0;
             }
-            item.leadTime = maxLeadTime + 1; // +1 day for production
         }
+        item.leadTime = maxLeadTime + 1; // +1 day for production
     }
 
     return item;
@@ -1046,6 +1087,57 @@ export const processScrapGeneration = async (entry: ProductionEntry): Promise<vo
     });
 };
 
+export const processExtrusionMixConsumption = async (entry: ProductionEntry): Promise<void> => {
+    if (!entry.metaData || !entry.metaData.extrusion || !entry.metaData.extrusion.mix) return;
+
+    const mixItems = entry.metaData.extrusion.mix;
+    // Iterate over mix items
+    for (const item of mixItems) {
+        const qty = Number(item.qty);
+        // Only process if valid quantity and linked to a real material ID
+        if (qty > 0 && item.materialId) {
+
+            // 1. Estoque Físico: Baixa (OUT)
+            await processStockTransaction({
+                materialId: item.materialId,
+                type: 'OUT',
+                quantity: qty,
+                notes: `Consumo Extrusão (Mix) - Reg #${entry.id.substring(0, 8)}`,
+                relatedEntryId: entry.id
+            });
+
+            // 2. Reserva: Atualizar status se vinculado a OP
+            if (entry.productionOrderId) {
+                // Find reservation for this specific material and OP
+                const { data: reservation } = await supabase
+                    .from('material_reservations')
+                    .select('*')
+                    .eq('production_order_id', entry.productionOrderId)
+                    .eq('material_id', item.materialId)
+                    .eq('status', 'PENDING') // Only pending ones
+                    .single();
+
+                if (reservation) {
+                    // Start SIMPLE strategy: If consumed, mark as CONSUMED (or partial logic if we had columns)
+                    // Users request: "sair da reserva".
+                    // Let's assume we consume the reservation fully or partially. 
+                    // To safeguard, we only mark CONSUMED if we don't track partial.
+                    // Or we could update the 'quantity' of the reservation to reduce it?
+                    // Better: Update Status to CONSUMED.
+
+                    // Future improvement: check if qty >= reservation.quantity before closing.
+                    // For now, let's close it to "free" the reservation lock essentially.
+
+                    await supabase
+                        .from('material_reservations')
+                        .update({ status: 'CONSUMED' })
+                        .eq('id', reservation.id);
+                }
+            }
+        }
+    }
+};
+
 // --- LOGISTICS ---
 export const fetchShippingOrders = async (): Promise<ShippingOrder[]> => {
     const orgId = await getCurrentOrgId();
@@ -1081,10 +1173,27 @@ export const saveShippingItem = async (item: Omit<ShippingItem, 'product'>): Pro
 export const deleteShippingItem = async (id: string): Promise<void> => { await supabase.from('shipping_items').delete().eq('id', id); };
 
 export const fetchProductCosts = async (): Promise<ProductCostSummary[]> => {
-    const { data } = await supabase.from('product_costs_summary').select('*');
+    const orgId = await getCurrentOrgId();
+    if (!orgId) return [];
+
+    // Explicitly filter by organization_id to ensure isolation
+    const { data, error } = await supabase
+        .from('product_costs_summary')
+        .select('*')
+        .eq('organization_id', orgId);
+
+    if (error) {
+        console.error("Error fetching product costs:", error);
+        return [];
+    }
+
     return (data || []).map((d: any) => ({
-        productCode: d.product_code, productName: d.product_name, sellingPrice: d.selling_price || 0,
-        materialCost: d.material_cost || 0, packagingCost: d.packaging_cost || 0, operationalCost: d.operational_cost || 0,
+        productCode: d.product_code,
+        productName: d.product_name,
+        sellingPrice: d.selling_price || 0,
+        materialCost: d.material_cost || 0,
+        packagingCost: d.packaging_cost || 0,
+        operationalCost: d.operational_cost || 0,
         totalCost: d.material_cost + d.packaging_cost + d.operational_cost
     }));
 };
@@ -1170,6 +1279,7 @@ export const registerProductionEntry = async (entry: ProductionEntry, isEdit: bo
     if (!isEdit) {
         await processStockDeduction({ ...entry, id: entryId });
         await processScrapGeneration({ ...entry, id: entryId });
+        await processExtrusionMixConsumption({ ...entry, id: entryId });
     }
 
     // 4. Update Production Order Status (Auto-Start)

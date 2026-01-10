@@ -113,6 +113,7 @@ const SettingsPage: React.FC = () => {
                     className="sr-only peer"
                     checked={checked}
                     onChange={e => onChange(e.target.checked)}
+                    aria-label={label}
                 />
                 <div className={`w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-brand-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all ${checked ? 'peer-checked:bg-brand-600' : ''}`}></div>
             </label>
@@ -234,6 +235,12 @@ const SettingsPage: React.FC = () => {
                                 checked={settings.includeBorraInReturn || false}
                                 onChange={val => setSettings({ ...settings, includeBorraInReturn: val })}
                             />
+                            <ToggleSetting
+                                label="Abater Estoque Imediatamente (Reserva Rígida)"
+                                description="Se ativado, ao criar reserva (OP), o sistema subtrai do estoque físico imediatamente (Hard Allocation). Se desativado, apenas sinaliza 'Reservado'."
+                                checked={settings.hardReserveStock || false}
+                                onChange={val => setSettings({ ...settings, hardReserveStock: val })}
+                            />
                         </div>
 
                         {/* Maintenance Mode Special Toggle */}
@@ -256,6 +263,7 @@ const SettingsPage: React.FC = () => {
                                         className="sr-only peer"
                                         checked={settings.maintenanceMode}
                                         onChange={e => setSettings({ ...settings, maintenanceMode: e.target.checked })}
+                                        aria-label="Ativar Modo de Manutenção"
                                     />
                                     <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
                                 </label>
@@ -285,6 +293,8 @@ const SettingsPage: React.FC = () => {
                                         className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded text-xs h-9"
                                         value={newField.type}
                                         onChange={e => setNewField({ ...newField, type: e.target.value as any })}
+                                        aria-label="Tipo do Campo"
+                                        title="Selecione o tipo do campo"
                                     >
                                         <option value="text">Texto</option>
                                         <option value="number">Número</option>
@@ -296,13 +306,15 @@ const SettingsPage: React.FC = () => {
                                         className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded text-xs h-9"
                                         value={newField.section}
                                         onChange={e => setNewField({ ...newField, section: e.target.value as any })}
+                                        aria-label="Seção do Campo"
+                                        title="Selecione a seção do campo"
                                     >
                                         <option value="production">Prod.</option>
                                         <option value="process">Proc.</option>
                                         <option value="quality">Qual.</option>
                                     </select>
                                 </div>
-                                <button type="button" onClick={handleAddField} className="h-9 bg-brand-600 text-white rounded hover:bg-brand-700 flex items-center justify-center">
+                                <button type="button" onClick={handleAddField} className="h-9 bg-brand-600 text-white rounded hover:bg-brand-700 flex items-center justify-center" aria-label="Adicionar Campo" title="Adicionar novo campo">
                                     <Plus size={16} />
                                 </button>
                             </div>
@@ -326,7 +338,9 @@ const SettingsPage: React.FC = () => {
                                             </td>
                                             <td className="px-3 py-2"><span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">{f.type}</span></td>
                                             <td className="px-3 py-2 text-right">
-                                                <button type="button" onClick={(e) => handleDeleteField(f.key, e)} className="text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
+                                                <button type="button" onClick={(e) => handleDeleteField(f.key, e)} className="text-slate-400 hover:text-red-500" aria-label={`Remover campo ${f.label}`} title="Remover campo">
+                                                    <Trash2 size={14} />
+                                                </button>
                                             </td>
                                         </tr>
                                     ))}

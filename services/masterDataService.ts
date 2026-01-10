@@ -44,7 +44,8 @@ export const fetchSettings = async (): Promise<AppSettings> => {
       enableProductionOrders: data.enable_production_orders ?? true,
       extrusionScrapLimit: data.extrusion_scrap_limit ?? 5.0,
       thermoformingScrapLimit: data.thermoforming_scrap_limit ?? 2.0,
-      includeBorraInReturn: data.include_borra_in_return ?? false // Default false
+      includeBorraInReturn: data.include_borra_in_return ?? false,
+      hardReserveStock: data.hard_reserve_stock ?? false // NEW
     };
   } catch (e) { return DEFAULT_SETTINGS; }
 };
@@ -71,6 +72,7 @@ export const saveSettings = async (settings: AppSettings): Promise<{ error?: any
     extrusion_scrap_limit: settings.extrusionScrapLimit,
     thermoforming_scrap_limit: settings.thermoformingScrapLimit,
     include_borra_in_return: settings.includeBorraInReturn,
+    hard_reserve_stock: settings.hardReserveStock,
     updated_at: new Date().toISOString(),
     organization_id: orgId
   };
@@ -95,8 +97,10 @@ export const saveSettings = async (settings: AppSettings): Promise<{ error?: any
   const { error } = await query;
 
   if (error) {
-    console.warn("Setting save error, attempting legacy save for safety.");
-    // Legacy save mostly for dev environments without full migration
+    console.warn("Setting save error:", error.message, error.details, error.hint);
+    alert(`ERRO DE BANCO DE DADOS DETALHADO:\n${error.message}\nDetalhes: ${error.details || 'N/A'}\nDica: ${error.hint || 'N/A'}`);
+
+    // Legacy support for dev env
     const legacySettings = {
       id: 1,
       shift_hours: settings.shiftHours,
@@ -108,8 +112,12 @@ export const saveSettings = async (settings: AppSettings): Promise<{ error?: any
       maintenance_mode: settings.maintenanceMode,
       updated_at: new Date().toISOString()
     };
+
     const { error: legacyError } = await supabase.from('app_settings').upsert([legacySettings]);
-    if (legacyError) throw legacyError;
+    if (legacyError) {
+      console.error("Legacy save also failed:", legacyError);
+      throw legacyError;
+    }
     return { fallback: true, error };
   }
   return {};
